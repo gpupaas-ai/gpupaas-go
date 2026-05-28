@@ -137,12 +137,12 @@ type Rule struct {
 
 // SecurityGroupSpec holds desired security group state.
 type SecurityGroupSpec struct {
-	SecurityGroup     ResourceRef      `json:"securityGroup" yaml:"securityGroup"`
-	Type              string           `json:"type,omitempty" yaml:"type,omitempty"`
-	IPRules           []IpRule         `json:"ipRules,omitempty" yaml:"ipRules,omitempty"`
-	PortForwardRules  []PortForwardRule `json:"portForwardRules,omitempty" yaml:"portForwardRules,omitempty"`
-	Rules             []Rule           `json:"rules,omitempty" yaml:"rules,omitempty"`
-	Sharing           *DevSharingSpec  `json:"sharing,omitempty" yaml:"sharing,omitempty"`
+	SecurityGroup    ResourceRef       `json:"securityGroup" yaml:"securityGroup"`
+	Type             string            `json:"type,omitempty" yaml:"type,omitempty"`
+	IPRules          []IpRule          `json:"ipRules,omitempty" yaml:"ipRules,omitempty"`
+	PortForwardRules []PortForwardRule `json:"portForwardRules,omitempty" yaml:"portForwardRules,omitempty"`
+	Rules            []Rule            `json:"rules,omitempty" yaml:"rules,omitempty"`
+	Sharing          *DevSharingSpec   `json:"sharing,omitempty" yaml:"sharing,omitempty"`
 }
 
 // SecurityGroupStatus holds observed security group state.

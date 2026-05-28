@@ -2,16 +2,16 @@ package convert
 
 // Backend REST paths (not Kubernetes-style /apis/... for all resources).
 const (
-	AuthProjectsPath      = "/auth/v1/projects/"
-	AuthProjectPath       = "/auth/v1/projects/%s/"
+	AuthProjectsPath                = "/auth/v1/projects/"
+	AuthProjectPath                 = "/auth/v1/projects/%s/"
 	PaaSWorkspacesPath              = "/apis/paas.envmgmt.io/v1/projects/%s/workspaces"
 	PaaSWorkspacePath               = "/apis/paas.envmgmt.io/v1/projects/%s/workspaces/%s"
 	PaaSWorkspaceCollaboratorsPath  = "/apis/paas.envmgmt.io/v1/projects/%s/workspaces/%s/collaborators"
 	PaaSWorkspaceAssignCollabPath   = "/apis/paas.envmgmt.io/v1/projects/%s/workspaces/%s/assigncollaborators"
 	PaaSWorkspaceUnassignCollabPath = "/apis/paas.envmgmt.io/v1/projects/%s/workspaces/%s/unassigncollaborators"
-	PaaSWorkspaceAPIVer   = "paas.envmgmt.io/v1"
-	PaaSWorkspaceKind     = "Workspace"
-	PaaSWorkspaceListKind = "WorkspaceList"
+	PaaSWorkspaceAPIVer             = "paas.envmgmt.io/v1"
+	PaaSWorkspaceKind               = "Workspace"
+	PaaSWorkspaceListKind           = "WorkspaceList"
 
 	DevAPIVersion = "dev.envmgmt.io/v1"
 

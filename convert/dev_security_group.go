@@ -56,12 +56,12 @@ type DevRule struct {
 
 // DevSecurityGroupSpec is the wire spec for a security group.
 type DevSecurityGroupSpec struct {
-	SecurityGroup    DevResourceRef      `json:"security_group"`
-	Type             string              `json:"type,omitempty"`
-	IPRules          []DevIpRule         `json:"ip_rules,omitempty"`
+	SecurityGroup    DevResourceRef       `json:"security_group"`
+	Type             string               `json:"type,omitempty"`
+	IPRules          []DevIpRule          `json:"ip_rules,omitempty"`
 	PortForwardRules []DevPortForwardRule `json:"port_forward_rules,omitempty"`
-	Rules            []DevRule           `json:"rules,omitempty"`
-	Sharing          *DevSharingSpec     `json:"sharing,omitempty"`
+	Rules            []DevRule            `json:"rules,omitempty"`
+	Sharing          *DevSharingSpec      `json:"sharing,omitempty"`
 }
 
 // DevSecurityGroupStatus is runtime status on the wire.

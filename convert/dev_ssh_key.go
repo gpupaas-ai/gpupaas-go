@@ -57,10 +57,10 @@ type DevSshKey struct {
 
 // DevSshKeyList is the wire format for SSH key list responses.
 type DevSshKeyList struct {
-	APIVersion string          `json:"apiVersion"`
-	Kind       string          `json:"kind"`
+	APIVersion string           `json:"apiVersion"`
+	Kind       string           `json:"kind"`
 	Metadata   PaaSListMetadata `json:"metadata,omitempty"`
-	Items      []DevSshKey     `json:"items"`
+	Items      []DevSshKey      `json:"items"`
 }
 
 // ToDevSshKey converts SDK SSH key to wire format.
