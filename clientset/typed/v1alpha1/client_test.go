@@ -336,6 +336,15 @@ func TestVirtualMachineClientProjectScope(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(vm)
 		case r.Method == http.MethodPost && r.URL.Path == "/apis/dev.envmgmt.io/v1/projects/demo/virtualmachines/vm1/action/start":
 			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/apis/dev.envmgmt.io/v1/projects/demo/virtualmachines/vm1/action/reboot":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/apis/dev.envmgmt.io/v1/projects/demo/virtualmachines/vm1/action/custom-verb":
+			var payload convert.DevVirtualMachineActionPayload
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			if len(payload.Envs) == 0 || payload.Envs[0]["KEY"] != "value" {
+				t.Errorf("expected envs[0].KEY=value, got %+v", payload.Envs)
+			}
+			w.WriteHeader(http.StatusOK)
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -397,6 +406,14 @@ func TestVirtualMachineClientProjectScope(t *testing.T) {
 	}
 
 	if _, err := vms.Start(ctx, "vm1", gpupaas.ActionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vms.Reboot(ctx, "vm1", gpupaas.ActionOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vms.Action(ctx, "vm1", "custom-verb", gpupaas.ActionOptions{
+		Envs: []map[string]string{{"KEY": "value"}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := vms.Delete(ctx, "vm1", gpupaas.DeleteOptions{}); err != nil {

@@ -78,6 +78,7 @@ type DevVirtualMachineSharingSpec struct {
 // DevVirtualMachineSpec is the wire spec for a virtual machine.
 type DevVirtualMachineSpec struct {
 	VirtualMachine        DevResourceRef                `json:"virtual_machine"`
+	VMId                  string                        `json:"vm_id,omitempty"`
 	Type                  string                        `json:"type,omitempty"`
 	Name                  string                        `json:"name,omitempty"`
 	CPUCount              string                        `json:"cpu_count,omitempty"`
@@ -127,8 +128,33 @@ type DevMetadata struct {
 	Name        string            `json:"name"`
 	Project     string            `json:"project,omitempty"`
 	Workspace   string            `json:"workspace,omitempty"`
+	DisplayName string            `json:"displayName,omitempty"`
+	Description string            `json:"description,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+	// CreatedBy / ModifiedBy are set by the backend; clients should not write them.
+	CreatedBy  *DevUserMeta `json:"createdBy,omitempty"`
+	ModifiedBy *DevUserMeta `json:"modifiedBy,omitempty"`
+}
+
+// DevUserMeta is the wire representation of a user reference.
+type DevUserMeta struct {
+	Username  string              `json:"username,omitempty"`
+	IsSSOUser bool                `json:"isSSOUser,omitempty"`
+	Options   *DevUserMetaOptions `json:"options,omitempty"`
+}
+
+// DevUserMetaOptions is the wire representation of user options.
+type DevUserMetaOptions struct {
+	Description string                      `json:"description,omitempty"`
+	Required    bool                        `json:"required,omitempty"`
+	Override    *DevUserMetaOverrideOptions `json:"override,omitempty"`
+}
+
+// DevUserMetaOverrideOptions is the wire representation of user override options.
+type DevUserMetaOverrideOptions struct {
+	Type             string   `json:"type,omitempty"`
+	RestrictedValues []string `json:"restrictedValues,omitempty"`
 }
 
 // DevVirtualMachine is the wire format for virtual machine CRUD on dev.envmgmt.io/v1.
@@ -142,9 +168,9 @@ type DevVirtualMachine struct {
 
 // DevVirtualMachineList is the wire format for virtual machine list responses.
 type DevVirtualMachineList struct {
-	APIVersion string           `json:"apiVersion"`
-	Kind       string           `json:"kind"`
-	Metadata   PaaSListMetadata `json:"metadata,omitempty"`
+	APIVersion string              `json:"apiVersion"`
+	Kind       string              `json:"kind"`
+	Metadata   PaaSListMetadata    `json:"metadata,omitempty"`
 	Items      []DevVirtualMachine `json:"items"`
 }
 
@@ -159,26 +185,12 @@ func ToDevVirtualMachine(vm *apiv1.VirtualMachine, project, workspace string) *D
 	if vm == nil {
 		return nil
 	}
-	projectName := vm.Metadata.Project
-	if projectName == "" {
-		projectName = project
-	}
-	wsName := vm.Metadata.Workspace
-	if wsName == "" {
-		wsName = workspace
-	}
 	return &DevVirtualMachine{
 		APIVersion: DevAPIVersion,
 		Kind:       DevVirtualMachineKind,
-		Metadata: DevMetadata{
-			Name:        vm.Metadata.Name,
-			Project:     projectName,
-			Workspace:   wsName,
-			Labels:      copyStringMap(vm.Metadata.Labels),
-			Annotations: copyStringMap(vm.Metadata.Annotations),
-		},
-		Spec:   toDevVirtualMachineSpec(vm.Spec),
-		Status: DevVirtualMachineStatus{},
+		Metadata:   devMetadataToWire(vm.Metadata, project, workspace),
+		Spec:       toDevVirtualMachineSpec(vm.Spec),
+		Status:     DevVirtualMachineStatus{},
 	}
 }
 
@@ -188,6 +200,7 @@ func toDevVirtualMachineSpec(s apiv1.VirtualMachineSpec) DevVirtualMachineSpec {
 			Name:          s.VirtualMachine.Name,
 			SystemCatalog: s.VirtualMachine.SystemCatalog,
 		},
+		VMId:                  s.VMId,
 		Type:                  s.Type,
 		Name:                  s.Name,
 		CPUCount:              s.CPUCount,
@@ -243,24 +256,14 @@ func FromDevVirtualMachine(wire *DevVirtualMachine, workspace string) *apiv1.Vir
 	if wire == nil {
 		return nil
 	}
-	ws := wire.Metadata.Workspace
-	if ws == "" {
-		ws = workspace
-	}
 	return &apiv1.VirtualMachine{
 		TypeMeta: apiv1.TypeMeta{
 			APIVersion: apiv1.APIVersion,
 			Kind:       apiv1.KindVirtualMachine,
 		},
-		Metadata: apiv1.ObjectMeta{
-			Name:        wire.Metadata.Name,
-			Project:     wire.Metadata.Project,
-			Workspace:   ws,
-			Labels:      copyStringMap(wire.Metadata.Labels),
-			Annotations: copyStringMap(wire.Metadata.Annotations),
-		},
-		Spec:   fromDevVirtualMachineSpec(wire.Spec),
-		Status: fromDevVirtualMachineStatus(wire.Status),
+		Metadata: devMetadataFromWire(wire.Metadata, workspace),
+		Spec:     fromDevVirtualMachineSpec(wire.Spec),
+		Status:   fromDevVirtualMachineStatus(wire.Status),
 	}
 }
 
@@ -270,6 +273,7 @@ func fromDevVirtualMachineSpec(s DevVirtualMachineSpec) apiv1.VirtualMachineSpec
 			Name:          s.VirtualMachine.Name,
 			SystemCatalog: s.VirtualMachine.SystemCatalog,
 		},
+		VMId:                  s.VMId,
 		Type:                  s.Type,
 		Name:                  s.Name,
 		CPUCount:              s.CPUCount,

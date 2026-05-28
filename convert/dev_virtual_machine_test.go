@@ -11,13 +11,16 @@ func TestDevVirtualMachineRoundTrip(t *testing.T) {
 	in := &apiv1.VirtualMachine{
 		TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: apiv1.KindVirtualMachine},
 		Metadata: apiv1.ObjectMeta{
-			Name:      "my-vm",
-			Project:   "demo",
-			Workspace: "dev",
-			Labels:    map[string]string{"env": "test"},
+			Name:        "my-vm",
+			Project:     "demo",
+			Workspace:   "dev",
+			DisplayName: "My VM",
+			Description: "A test VM",
+			Labels:      map[string]string{"env": "test"},
 		},
 		Spec: apiv1.VirtualMachineSpec{
 			VirtualMachine: apiv1.ResourceRef{Name: "ubuntu-22", SystemCatalog: true},
+			VMId:           "device-1234",
 			CPUCount:       "4",
 			Memory:         "8Gi",
 			SecurityGroup:  "default-sg",
@@ -45,6 +48,15 @@ func TestDevVirtualMachineRoundTrip(t *testing.T) {
 	wire := convert.ToDevVirtualMachine(in, "demo", "dev")
 	if wire.Spec.VirtualMachine.Name != "ubuntu-22" {
 		t.Fatalf("wire virtual_machine.name: %q", wire.Spec.VirtualMachine.Name)
+	}
+	if wire.Spec.VMId != "device-1234" {
+		t.Fatalf("wire vm_id: %q", wire.Spec.VMId)
+	}
+	if wire.Metadata.DisplayName != "My VM" || wire.Metadata.Description != "A test VM" {
+		t.Fatalf("wire metadata displayName/description: %+v", wire.Metadata)
+	}
+	if wire.Metadata.CreatedBy != nil || wire.Metadata.ModifiedBy != nil {
+		t.Fatalf("createdBy/modifiedBy should never be written by clients: %+v", wire.Metadata)
 	}
 	if wire.Spec.CPUCount != "4" {
 		t.Fatalf("wire cpu_count: %q", wire.Spec.CPUCount)
@@ -74,11 +86,65 @@ func TestDevVirtualMachineRoundTrip(t *testing.T) {
 	if out.Metadata.Workspace != "dev" {
 		t.Fatalf("workspace: %q", out.Metadata.Workspace)
 	}
+	if out.Metadata.DisplayName != "My VM" || out.Metadata.Description != "A test VM" {
+		t.Fatalf("metadata displayName/description round-trip: %+v", out.Metadata)
+	}
+	if out.Spec.VMId != "device-1234" {
+		t.Fatalf("spec.vmId round-trip: %q", out.Spec.VMId)
+	}
 	if out.Spec.CPUCount != "4" || out.Spec.SecurityGroup != "default-sg" {
 		t.Fatalf("spec round-trip failed: %+v", out.Spec)
 	}
 	if out.Status.Output == nil || out.Status.Output.PrivateIP != "10.0.0.5" {
 		t.Fatalf("status output: %+v", out.Status.Output)
+	}
+}
+
+func TestDevVirtualMachineCreatedByObserved(t *testing.T) {
+	// Backend populates createdBy/modifiedBy on reads; SDK should surface them
+	// on ObjectMeta but never echo them back on writes.
+	wire := &convert.DevVirtualMachine{
+		APIVersion: "dev.envmgmt.io/v1",
+		Kind:       "VirtualMachine",
+		Metadata: convert.DevMetadata{
+			Name:    "my-vm",
+			Project: "demo",
+			CreatedBy: &convert.DevUserMeta{
+				Username:  "alice@example.com",
+				IsSSOUser: true,
+			},
+			ModifiedBy: &convert.DevUserMeta{
+				Username: "bob@example.com",
+				Options: &convert.DevUserMetaOptions{
+					Description: "secondary edit",
+					Required:    true,
+					Override: &convert.DevUserMetaOverrideOptions{
+						Type:             "restricted",
+						RestrictedValues: []string{"a", "b"},
+					},
+				},
+			},
+		},
+		Spec: convert.DevVirtualMachineSpec{
+			VirtualMachine: convert.DevResourceRef{Name: "ubuntu-22"},
+		},
+	}
+
+	vm := convert.FromDevVirtualMachine(wire, "")
+	if vm.Metadata.CreatedBy == nil || vm.Metadata.CreatedBy.Username != "alice@example.com" || !vm.Metadata.CreatedBy.IsSSOUser {
+		t.Fatalf("createdBy not populated: %+v", vm.Metadata.CreatedBy)
+	}
+	if vm.Metadata.ModifiedBy == nil || vm.Metadata.ModifiedBy.Options == nil ||
+		vm.Metadata.ModifiedBy.Options.Override == nil ||
+		vm.Metadata.ModifiedBy.Options.Override.Type != "restricted" ||
+		len(vm.Metadata.ModifiedBy.Options.Override.RestrictedValues) != 2 {
+		t.Fatalf("modifiedBy override not populated: %+v", vm.Metadata.ModifiedBy)
+	}
+
+	// Round-tripping back to wire MUST NOT include createdBy/modifiedBy.
+	roundTrip := convert.ToDevVirtualMachine(vm, "demo", "")
+	if roundTrip.Metadata.CreatedBy != nil || roundTrip.Metadata.ModifiedBy != nil {
+		t.Fatalf("createdBy/modifiedBy must be stripped on write: %+v", roundTrip.Metadata)
 	}
 }
 

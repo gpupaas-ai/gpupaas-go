@@ -110,6 +110,15 @@ go run ./examples/delete_yaml ./manifest.yaml demo
 
 API group `gpupaas.ai/v1alpha1` may change until a beta or stable release.
 
+## Adding a resource from swagger
+
+When extending the SDK with a new resource from a Swagger / OpenAPI document,
+follow [`specs/add-resource-from-swagger/SKILL.md`](specs/add-resource-from-swagger/SKILL.md).
+It documents the apis/v1alpha1 → convert → clientset → backend/remote pipeline,
+backward-compatibility rules (never silently remove fields, methods, or
+kinds — always confirm with the user first), the README updates required for
+every new resource, and the `go fmt / vet / test / build` verification gate.
+
 ## Appendix: Resource reference
 
 All resources use the Kubernetes-style envelope:
@@ -395,7 +404,7 @@ _, _ = collab.Delete(ctx, "bob.sso@gpupaas.ai", gpupaas.DeleteOptions{SSOUser: &
 | Project | omit | `cs.V1alpha1().VirtualMachines(project)` |
 | Workspace | required | `cs.V1alpha1().Workspaces(project).VirtualMachines(workspace)` |
 
-**Backend:** `dev.envmgmt.io/v1` paths. Apply is **POST** to the collection URL. Start/stop use `POST .../action/start` and `POST .../action/stop`.
+**Backend:** `dev.envmgmt.io/v1` paths. Apply is **POST** to the collection URL. Lifecycle actions use `POST .../action/{start|stop|reboot|...}` with an optional `{variables, envs}` body. Observed provisioning state is read via `GET .../status`.
 
 #### Project-scoped create
 
@@ -447,6 +456,8 @@ spec:
 | Status | `.GetStatus(ctx, name, opts)` | same |
 | Start | `.Start(ctx, name, ActionOptions{})` | same |
 | Stop | `.Stop(ctx, name, ActionOptions{})` | same |
+| Reboot | `.Reboot(ctx, name, ActionOptions{})` | same |
+| Generic action | `.Action(ctx, name, verb, ActionOptions{Envs, Variables})` | same |
 
 #### `spec` fields
 
@@ -454,6 +465,7 @@ spec:
 |-------|----------|-------------|
 | `virtualMachine.name` | yes | VM profile / catalog reference |
 | `virtualMachine.systemCatalog` | no | Use system catalog profile |
+| `vmId` | no | Inventory device ID of the virtual machine. Usually observed from the backend; may be set by clients to pin a VM to a specific device (wire field: `vm_id`). |
 | `cpuCount` | no | CPU count (string) |
 | `memory` | no | Memory size (e.g. `4Gi`) |
 | `securityGroup` | no | Security group name or ID — see [SecurityGroup](#securitygroup) |
@@ -501,8 +513,9 @@ go run ./examples/list-vms -memory -project demo
 go run ./examples/create-vm -memory -project demo -workspace dev -name example-vm
 go run ./examples/get-vm -memory -project demo -name example-vm
 go run ./examples/delete-vm -memory -project demo -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-start -project demo -workspace dev -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-stop -project demo -workspace dev -name example-vm
+GPUPAAS_API_KEY=... go run ./examples/vm-start  -project demo -workspace dev -name example-vm
+GPUPAAS_API_KEY=... go run ./examples/vm-stop   -project demo -workspace dev -name example-vm
+GPUPAAS_API_KEY=... go run ./examples/vm-reboot -project demo -workspace dev -name example-vm
 ```
 
 ---
@@ -709,8 +722,14 @@ go run ./examples/delete-ssh-key -memory -project demo -name example-ssh-key
 | `metadata.name` | All resources | Primary identifier; immutable after create |
 | `metadata.project` | Workspace, VirtualMachine, Storage, SecurityGroup, SshKey, WorkspaceCollaborator | Parent project; required for scoped resources |
 | `metadata.workspace` | VirtualMachine, Storage, SecurityGroup, SshKey (workspace scope), WorkspaceCollaborator | Parent workspace within a project |
+| `metadata.displayName` | All | Optional human-friendly name. Sent on writes. |
+| `metadata.description` | All | Optional human-readable description. Sent on writes. |
 | `metadata.labels` | All | Selectors and automation hooks |
 | `metadata.annotations` | All | Tooling-specific key/value data |
+| `metadata.createdBy` | All (read-only) | `UserMeta` populated by the backend on reads; **ignored on writes** |
+| `metadata.modifiedBy` | All (read-only) | `UserMeta` populated by the backend on reads; **ignored on writes** |
+
+`UserMeta` carries `username`, `isSSOUser`, and an optional `options` block (`description`, `required`, `override.type`, `override.restrictedValues`). It is read-only — `ToDev*` converters strip it before sending.
 
 When applying YAML with `apply.ApplyFile`, pass the default project (and workspace when needed) as arguments; empty fields on the object are filled from those defaults.
 

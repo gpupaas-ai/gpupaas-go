@@ -62,8 +62,12 @@ func devMetadataFromWire(w DevMetadata, workspace string) apiv1.ObjectMeta {
 		Name:        w.Name,
 		Project:     w.Project,
 		Workspace:   ws,
+		DisplayName: w.DisplayName,
+		Description: w.Description,
 		Labels:      copyStringMap(w.Labels),
 		Annotations: copyStringMap(w.Annotations),
+		CreatedBy:   userMetaFromWire(w.CreatedBy),
+		ModifiedBy:  userMetaFromWire(w.ModifiedBy),
 	}
 }
 
@@ -76,13 +80,44 @@ func devMetadataToWire(meta apiv1.ObjectMeta, project, workspace string) DevMeta
 	if wsName == "" {
 		wsName = workspace
 	}
+	// CreatedBy / ModifiedBy are intentionally omitted on writes; they are
+	// observed metadata populated by the backend on reads.
 	return DevMetadata{
 		Name:        meta.Name,
 		Project:     projectName,
 		Workspace:   wsName,
+		DisplayName: meta.DisplayName,
+		Description: meta.Description,
 		Labels:      copyStringMap(meta.Labels),
 		Annotations: copyStringMap(meta.Annotations),
 	}
+}
+
+func userMetaFromWire(w *DevUserMeta) *apiv1.UserMeta {
+	if w == nil {
+		return nil
+	}
+	out := &apiv1.UserMeta{
+		Username:  w.Username,
+		IsSSOUser: w.IsSSOUser,
+	}
+	if w.Options != nil {
+		opts := &apiv1.UserMetaOptions{
+			Description: w.Options.Description,
+			Required:    w.Options.Required,
+		}
+		if w.Options.Override != nil {
+			ov := &apiv1.UserMetaOverrideOptions{
+				Type: w.Options.Override.Type,
+			}
+			if len(w.Options.Override.RestrictedValues) > 0 {
+				ov.RestrictedValues = append([]string(nil), w.Options.Override.RestrictedValues...)
+			}
+			opts.Override = ov
+		}
+		out.Options = opts
+	}
+	return out
 }
 
 func devListContinue(meta PaaSListMetadata, itemCount int) string {

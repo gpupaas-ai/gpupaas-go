@@ -450,6 +450,14 @@ func (c *virtualMachineClient) Stop(ctx context.Context, name string, opts gpupa
 	return c.executeAction(ctx, name, "stop", opts)
 }
 
+func (c *virtualMachineClient) Reboot(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error) {
+	return c.executeAction(ctx, name, "reboot", opts)
+}
+
+func (c *virtualMachineClient) Action(ctx context.Context, name, action string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error) {
+	return c.executeAction(ctx, name, action, opts)
+}
+
 func (c *virtualMachineClient) executeAction(ctx context.Context, name, action string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error) {
 	_, _, _, actionPath := convert.VMPaths(c.scope())
 	payload := convert.DevVirtualMachineActionPayload{

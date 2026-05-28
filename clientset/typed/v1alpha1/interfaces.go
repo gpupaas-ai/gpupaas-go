@@ -47,6 +47,13 @@ type VirtualMachineInterface interface {
 	GetStatus(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.VirtualMachine, error)
 	Start(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
 	Stop(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
+	// Reboot executes the "reboot" action on a virtual machine.
+	Reboot(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
+	// Action executes an arbitrary action verb (e.g. "start", "stop", "reboot",
+	// or backend-specific verbs) on a virtual machine. It is the generic form
+	// of Start / Stop / Reboot for callers that need verbs not exposed as
+	// dedicated methods.
+	Action(ctx context.Context, name, action string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
 }
 
 // StorageInterface manages storage resources at project or workspace scope.

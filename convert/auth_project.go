@@ -6,17 +6,17 @@ import (
 
 // AuthProject is the auth service project payload (GET /auth/v1/projects/{id}/).
 type AuthProject struct {
-	ID                              string `json:"id,omitempty"`
-	Name                            string `json:"name"`
-	Description                     string `json:"description,omitempty"`
-	Default                         bool   `json:"default,omitempty"`
-	CreatedAt                       string `json:"created_at,omitempty"`
-	ModifiedAt                      string `json:"modified_at,omitempty"`
-	PartnerID                       string `json:"partner_id,omitempty"`
-	OrganizationID                  string `json:"organization_id,omitempty"`
-	EnableDriftWebhook              bool   `json:"enable_drift_webhook,omitempty"`
-	ClusterResourceQuota            any    `json:"cluster_resource_quota,omitempty"`
-	DefaultClusterNamespaceQuota    any    `json:"default_cluster_namespace_quota,omitempty"`
+	ID                           string `json:"id,omitempty"`
+	Name                         string `json:"name"`
+	Description                  string `json:"description,omitempty"`
+	Default                      bool   `json:"default,omitempty"`
+	CreatedAt                    string `json:"created_at,omitempty"`
+	ModifiedAt                   string `json:"modified_at,omitempty"`
+	PartnerID                    string `json:"partner_id,omitempty"`
+	OrganizationID               string `json:"organization_id,omitempty"`
+	EnableDriftWebhook           bool   `json:"enable_drift_webhook,omitempty"`
+	ClusterResourceQuota         any    `json:"cluster_resource_quota,omitempty"`
+	DefaultClusterNamespaceQuota any    `json:"default_cluster_namespace_quota,omitempty"`
 }
 
 const projectIDAnnotation = "gpupaas.ai/project-id"
