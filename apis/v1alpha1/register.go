@@ -39,6 +39,11 @@ func AddToScheme(scheme *runtime.Scheme) {
 		&SshKey{},
 		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "sshkeys"},
 	)
+	scheme.AddKnownTypeWithName(
+		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindBaremetalMachine},
+		&BaremetalMachine{},
+		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "baremetalmachines"},
+	)
 }
 
 // DefaultScheme returns a scheme with all v1alpha1 types registered.
