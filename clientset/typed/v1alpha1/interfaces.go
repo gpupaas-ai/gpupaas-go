@@ -79,3 +79,33 @@ type SshKeyInterface interface {
 	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.SshKeyList, error)
 	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
 }
+
+// BaremetalMachineInterface manages BaremetalMachine resources at project scope.
+//
+// CRUD endpoints are project-only; baremetal machines do not have a workspace
+// scope. Sub-actions (PowerOn, PowerOff, Reboot, Provision, ReinstallOS,
+// CreateConsoleSession) return the updated resource where applicable, and
+// GetStatusInfo returns the free-form BaremetalMachineInfo payload.
+type BaremetalMachineInterface interface {
+	Create(ctx context.Context, obj *apiv1.BaremetalMachine, opts gpupaas.CreateOptions) (*apiv1.BaremetalMachine, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BaremetalMachine, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.BaremetalMachineList, error)
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+
+	// PowerOn requests the machine to be powered on.
+	PowerOn(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
+	// PowerOff requests the machine to be powered off.
+	PowerOff(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
+	// Reboot requests the machine to be rebooted.
+	Reboot(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
+	// Provision triggers a deploy of the machine with its current spec.
+	Provision(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
+	// ReinstallOS reimages the machine with the supplied image.
+	ReinstallOS(ctx context.Context, name string, image *apiv1.BaremetalImage, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
+	// CreateConsoleSession opens a short-lived SOL console session and returns
+	// a WebSocket URL for the caller to connect to.
+	CreateConsoleSession(ctx context.Context, name string, req *apiv1.BaremetalConsoleSessionRequest, opts gpupaas.ActionOptions) (*apiv1.BaremetalConsoleSession, error)
+	// GetStatusInfo returns runtime info for the machine (hardware, network,
+	// etc.). This is distinct from the resource's embedded Status field.
+	GetStatusInfo(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BaremetalMachineInfo, error)
+}

@@ -38,7 +38,7 @@ func ValidateObject(obj runtime.Object, opts Options) error {
 		}
 		obj.SetProject(project)
 		return nil
-	case v1alpha1.KindVirtualMachine, v1alpha1.KindStorage, v1alpha1.KindSecurityGroup, v1alpha1.KindSshKey:
+	case v1alpha1.KindVirtualMachine, v1alpha1.KindStorage, v1alpha1.KindSecurityGroup, v1alpha1.KindSshKey, v1alpha1.KindBaremetalMachine:
 		project := obj.GetProject()
 		if project == "" {
 			project = opts.DefaultProject

@@ -20,6 +20,7 @@ type Interface interface {
 	Storages(project string) StorageInterface
 	SecurityGroups(project string) SecurityGroupInterface
 	SshKeys(project string) SshKeyInterface
+	BaremetalMachines(project string) BaremetalMachineInterface
 }
 
 // Client implements Interface.
@@ -54,6 +55,10 @@ func (c *Client) SecurityGroups(project string) SecurityGroupInterface {
 
 func (c *Client) SshKeys(project string) SshKeyInterface {
 	return newSshKeyClient(c.rest, project, "")
+}
+
+func (c *Client) BaremetalMachines(project string) BaremetalMachineInterface {
+	return newBaremetalMachineClient(c.rest, project)
 }
 
 type projectClient struct {

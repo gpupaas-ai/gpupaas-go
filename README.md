@@ -43,6 +43,7 @@ The public SDK speaks **Kubernetes-style** `gpupaas.ai/v1alpha1` objects. The re
 | Workspace collaborator | `WorkspaceCollaborator` | `GET/POST .../workspaces/{name}/collaborators`, `POST .../assigncollaborators`, `POST .../unassigncollaborators` |
 | VirtualMachine (project) | `VirtualMachine` | `GET/POST /apis/dev.envmgmt.io/v1/projects/{project}/virtualmachines`, `GET/DELETE .../{name}`, `GET .../status`, `POST .../action/{action}` |
 | VirtualMachine (workspace) | `VirtualMachine` | Same operations under `.../projects/{project}/workspaces/{name}/virtualmachines` |
+| BaremetalMachine | `BaremetalMachine`, `BaremetalMachineList`, `BaremetalMachineInfo`, `BaremetalConsoleSession` | `GET/POST /apis/infra.k8smgmt.io/v3/projects/{project}/baremetalmachines`, `GET/DELETE .../{name}`, `GET .../powerOn`, `GET .../powerOff`, `GET .../reboot`, `GET .../provision`, `POST .../reinstallOS`, `POST .../consoleSessions`, `GET .../status` |
 
 Conversion lives in the `convert/` package (`ToAuthProject`, `FromPaaSWorkspace`, etc.). Verbose logging shows wire HTTP payloads; returned objects are always normalized to `gpupaas.ai/v1alpha1`.
 
@@ -95,6 +96,14 @@ go run ./examples/get-vm -memory -project demo -name example-vm
 go run ./examples/delete-vm -memory -project demo -name example-vm
 GPUPAAS_API_KEY=... go run ./examples/vm-start -project demo -workspace dev -name example-vm
 GPUPAAS_API_KEY=... go run ./examples/vm-stop -project demo -workspace dev -name example-vm
+go run ./examples/create-baremetal -memory -project demo -name example-bm
+go run ./examples/get-baremetal -memory -project demo -name example-bm
+go run ./examples/list-baremetals -memory -project demo
+go run ./examples/delete-baremetal -memory -project demo -name example-bm
+GPUPAAS_API_KEY=... go run ./examples/baremetal-reboot -project demo -name example-bm
+GPUPAAS_API_KEY=... go run ./examples/baremetal-reinstall-os -project demo -name example-bm -image-url http://images/example.qcow2
+GPUPAAS_API_KEY=... go run ./examples/baremetal-console-session -project demo -name example-bm -compute-id compute-123
+GPUPAAS_API_KEY=... go run ./examples/baremetal-status -project demo -name example-bm
 go run ./examples/apply_yaml ./manifest.yaml demo
 go run ./examples/delete_yaml ./manifest.yaml demo
 ```
@@ -135,7 +144,8 @@ Platform hierarchy:
 ```text
 Organization (implicit — from your API token)
 └── Project          metadata.name
-    ├── VirtualMachine   project-scoped (metadata.project only)
+    ├── VirtualMachine    project-scoped (metadata.project only)
+    ├── BaremetalMachine  project-scoped (metadata.project only)
     └── Workspace    metadata.project + metadata.name
         ├── WorkspaceCollaborator
         └── VirtualMachine   workspace-scoped (metadata.project + metadata.workspace)
@@ -715,12 +725,170 @@ go run ./examples/delete-ssh-key -memory -project demo -name example-ssh-key
 
 ---
 
+### BaremetalMachine
+
+**What it is for:** A **BaremetalMachine** represents a physical host managed by the gpupaas baremetal control plane (metal3 / ironic). Use it to enroll, image, power-cycle, and reinstall a baremetal node, and to open a Serial-Over-LAN (SOL) console session for remote diagnostics.
+
+**Scope:** Project-scoped only — requires `metadata.name` and `metadata.project`. **There is no workspace scope** for BaremetalMachine; passing `metadata.workspace` is ignored. The wire `apiVersion` is `infra.k8smgmt.io/v3`; the SDK normalizes reads to `gpupaas.ai/v1alpha1`.
+
+**Backend mapping** (`infra.k8smgmt.io/v3`):
+
+| SDK operation | Backend call | Notes |
+|---------------|--------------|-------|
+| Create / Apply | `POST /apis/infra.k8smgmt.io/v3/projects/{project}/baremetalmachines` | Upsert; returns the applied object |
+| List | `GET .../baremetalmachines` | Supports `limit`, `offset`, `selector` via `ListOptions` |
+| Get | `GET .../baremetalmachines/{name}` | |
+| Update | `POST .../baremetalmachines` | Same path as Create (idempotent apply) |
+| Delete | `DELETE .../baremetalmachines/{name}` | Supports `auto-destroy`, `force` via `DeleteOptions` |
+| PowerOn | `GET .../baremetalmachines/{name}/powerOn` | Returns the updated BaremetalMachine |
+| PowerOff | `GET .../baremetalmachines/{name}/powerOff` | Returns the updated BaremetalMachine |
+| Reboot | `GET .../baremetalmachines/{name}/reboot` | Returns the updated BaremetalMachine |
+| Provision | `GET .../baremetalmachines/{name}/provision` | Triggers deployment; returns the updated BaremetalMachine |
+| ReinstallOS | `POST .../baremetalmachines/{name}/reinstallOS` | Body is a `BaremetalImage` (URL, format, checksum, checksumType); returns the updated BaremetalMachine |
+| CreateConsoleSession | `POST .../baremetalmachines/{name}/consoleSessions` | Body has `compute_id` (snake_case); returns `BaremetalConsoleSession` (`session_id`, `agent_session_id`, `console_url`) |
+| GetStatusInfo | `GET .../baremetalmachines/{name}/status` | Returns `BaremetalMachineInfo` (free-form `data.fields`); distinct from inline `status.conditions` |
+
+#### Create / Apply
+
+```yaml
+apiVersion: gpupaas.ai/v1alpha1
+kind: BaremetalMachine
+metadata:
+  name: bm-01
+  project: demo
+spec:
+  baremetalProvisionerName: default-provisioner
+  hostname: bm-01
+  datacenter: dc1
+  deviceId: device-001
+  macAddress: aa:bb:cc:dd:ee:ff
+  architecture: x86_64
+  bootMode: UEFI
+  automatedCleaningMode: metadata
+  online: true
+  sshKey: my-ssh-key
+  image:
+    url: http://images/example.qcow2
+    format: qcow2
+    checksumType: auto
+    checksum: auto
+  rootDeviceHints:
+    deviceName: /dev/sda
+    minSizeGigabytes: 100
+  raid:
+    hardwareRAIDVolumes:
+      - name: root
+        level: "1"
+        numberOfPhysicalDisks: 2
+        sizeGibibytes: 200
+  userData: |
+    #cloud-config
+    package_update: true
+```
+
+#### `metadata` fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Unique baremetal machine name within the project |
+| `project` | yes | Owning project name |
+| `displayName` | no | Human-readable name (writable) |
+| `description` | no | Human-readable description (writable) |
+| `labels` / `annotations` | no | Tags and tooling metadata |
+| `createdBy` / `modifiedBy` | no (read-only) | `UserMeta` populated by the backend; ignored on writes |
+
+#### `spec` fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `baremetalProvisionerName` | string | Provisioner that manages this host |
+| `hostname` | string | Hostname assigned to the machine |
+| `datacenter` | string | Inventory datacenter the host lives in |
+| `deviceId` | string | Inventory device id (wire field: `deviceId`) |
+| `macAddress` | string | MAC address of the provisioning NIC |
+| `architecture` | string | CPU architecture (`x86_64`, `aarch64`); usually populated by inspection |
+| `bootMode` | string | `UEFI` (default), `Legacy`, or `UEFISecureBoot` |
+| `automatedCleaningMode` | string | Set to `disabled` to skip cleaning |
+| `online` | bool | Desired power state when the host is in a stable state |
+| `sshKey` | string | SSH key name injected for first-boot login |
+| `userData` / `systemUserData` | string | cloud-init payloads |
+| `image` | `BaremetalImage` | Deployment image (`url`, `format`, `checksum`, `checksumType`) |
+| `rootDeviceHints` | `BaremetalRootDeviceHints` | Hints to narrow the OS deployment disk |
+| `raid` | `BaremetalRaid` | `hardwareRAIDVolumes` / `softwareRAIDVolumes` configuration |
+
+#### `status` fields (read-only)
+
+| Field | Description |
+|-------|-------------|
+| `conditions[]` | `type`, `status` (`NotSet`, `Pending`, `Success`, `Failed`), `reason`, `lastUpdated` (RFC3339) — observed lifecycle conditions |
+
+The richer per-host telemetry (hardware inventory, network observations) is exposed separately via `GetStatusInfo` as a `BaremetalMachineInfo{ Data: { Fields: map[string]any } }` envelope.
+
+#### Imperative sub-actions
+
+```go
+bms := cs.V1alpha1().BaremetalMachines("demo")
+
+// Power management (GET-based; return the updated BaremetalMachine)
+_, _ = bms.PowerOn(ctx, "bm-01", gpupaas.ActionOptions{})
+_, _ = bms.PowerOff(ctx, "bm-01", gpupaas.ActionOptions{})
+_, _ = bms.Reboot(ctx, "bm-01", gpupaas.ActionOptions{})
+
+// Provisioning lifecycle
+_, _ = bms.Provision(ctx, "bm-01", gpupaas.ActionOptions{})
+_, _ = bms.ReinstallOS(ctx, "bm-01", &v1alpha1.BaremetalImage{
+    URL:          "http://images/example.qcow2",
+    Format:       "qcow2",
+    ChecksumType: "auto",
+    Checksum:     "auto",
+}, gpupaas.ActionOptions{})
+
+// Serial-Over-LAN console (POST; returns a short-lived WebSocket URL)
+session, _ := bms.CreateConsoleSession(ctx, "bm-01", &v1alpha1.BaremetalConsoleSessionRequest{
+    ComputeID: "compute-123",
+}, gpupaas.ActionOptions{})
+// session.ConsoleURL, session.SessionID, session.AgentSessionID
+
+// Free-form runtime info
+info, _ := bms.GetStatusInfo(ctx, "bm-01", gpupaas.GetOptions{})
+// info.Data.Fields ...
+```
+
+#### Typed client
+
+```go
+bms := cs.V1alpha1().BaremetalMachines("demo")
+list, _ := bms.List(ctx, gpupaas.ListOptions{})
+bm, _ := bms.Create(ctx, &v1alpha1.BaremetalMachine{
+    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindBaremetalMachine},
+    Metadata: v1alpha1.ObjectMeta{Name: "bm-01", Project: "demo"},
+    Spec:     v1alpha1.BaremetalMachineSpec{Hostname: "bm-01"},
+}, gpupaas.CreateOptions{})
+_, _ = bms.Get(ctx, "bm-01", gpupaas.GetOptions{})
+_ = bms.Delete(ctx, "bm-01", gpupaas.DeleteOptions{})
+```
+
+#### Examples
+
+```bash
+go run ./examples/create-baremetal -memory -project demo -name example-bm
+go run ./examples/get-baremetal -memory -project demo -name example-bm
+go run ./examples/list-baremetals -memory -project demo
+go run ./examples/delete-baremetal -memory -project demo -name example-bm
+GPUPAAS_API_KEY=... go run ./examples/baremetal-reboot           -project demo -name example-bm
+GPUPAAS_API_KEY=... go run ./examples/baremetal-reinstall-os     -project demo -name example-bm -image-url http://images/example.qcow2
+GPUPAAS_API_KEY=... go run ./examples/baremetal-console-session  -project demo -name example-bm -compute-id compute-123
+GPUPAAS_API_KEY=... go run ./examples/baremetal-status           -project demo -name example-bm
+```
+
+---
+
 ### Shared metadata conventions
 
 | Field | Used on | Notes |
 |-------|---------|-------|
 | `metadata.name` | All resources | Primary identifier; immutable after create |
-| `metadata.project` | Workspace, VirtualMachine, Storage, SecurityGroup, SshKey, WorkspaceCollaborator | Parent project; required for scoped resources |
+| `metadata.project` | Workspace, VirtualMachine, BaremetalMachine, Storage, SecurityGroup, SshKey, WorkspaceCollaborator | Parent project; required for scoped resources |
 | `metadata.workspace` | VirtualMachine, Storage, SecurityGroup, SshKey (workspace scope), WorkspaceCollaborator | Parent workspace within a project |
 | `metadata.displayName` | All | Optional human-friendly name. Sent on writes. |
 | `metadata.description` | All | Optional human-readable description. Sent on writes. |

@@ -39,4 +39,17 @@ const (
 	DevProjectSshKeyPath    = "/apis/dev.envmgmt.io/v1/projects/%s/sshkeys/%s"
 	DevWorkspaceSshKeysPath = "/apis/dev.envmgmt.io/v1/projects/%s/workspaces/%s/sshkeys"
 	DevWorkspaceSshKeyPath  = "/apis/dev.envmgmt.io/v1/projects/%s/workspaces/%s/sshkeys/%s"
+
+	// Infra API group for project-scoped baremetal resources.
+	InfraAPIVersion = "infra.k8smgmt.io/v3"
+
+	InfraBaremetalMachinesPath              = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines"
+	InfraBaremetalMachinePath               = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s"
+	InfraBaremetalMachinePowerOnPath        = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/powerOn"
+	InfraBaremetalMachinePowerOffPath       = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/powerOff"
+	InfraBaremetalMachineRebootPath         = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/reboot"
+	InfraBaremetalMachineProvisionPath      = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/provision"
+	InfraBaremetalMachineReinstallOSPath    = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/reinstallOS"
+	InfraBaremetalMachineConsoleSessionPath = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/consoleSessions"
+	InfraBaremetalMachineStatusPath         = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/status"
 )

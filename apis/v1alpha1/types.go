@@ -15,6 +15,7 @@ const (
 	KindStorage               = "Storage"
 	KindSecurityGroup         = "SecurityGroup"
 	KindSshKey                = "SshKey"
+	KindBaremetalMachine      = "BaremetalMachine"
 )
 
 // Workspace collaborator roles on the paas.envmgmt.io API.
