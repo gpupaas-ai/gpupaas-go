@@ -103,7 +103,6 @@ go run ./examples/delete_yaml ./manifest.yaml demo
 
 | Project | Role |
 |---------|------|
-| [gpupaasctl](https://github.com/gpupaas-ai/gpupaasctl) | kubectl-style CLI (consumer) |
 | [terraform-provider-gpupaas](https://github.com/gpupaas-ai/terraform-provider-gpupaas) | Terraform provider (consumer) |
 | [paasctl](https://github.com/RafaySystems/paasctl) | Reference client architecture |
 
