@@ -109,3 +109,57 @@ type BaremetalMachineInterface interface {
 	// etc.). This is distinct from the resource's embedded Status field.
 	GetStatusInfo(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BaremetalMachineInfo, error)
 }
+
+// MKSClusterInterface manages MKSCluster resources at project scope, along with
+// cluster-scoped sub-resources (nodes, worker node groups, audit events) and
+// imperative sub-actions (Upgrade, ScaleNodeGroup, AddNodeGroup, RemoveNodeGroup).
+type MKSClusterInterface interface {
+	Create(ctx context.Context, obj *apiv1.MKSCluster, opts gpupaas.CreateOptions) (*apiv1.MKSCluster, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSCluster, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSClusterList, error)
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+
+	// Upgrade triggers a Kubernetes (and optional platform) version upgrade.
+	Upgrade(ctx context.Context, name string, req *apiv1.MKSUpgradeRequest, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
+	// ScaleNodeGroup adjusts the size of an existing worker node group.
+	ScaleNodeGroup(ctx context.Context, name string, req *apiv1.MKSScaleNodeGroupRequest, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
+	// AddNodeGroup adds a worker node group to the cluster.
+	AddNodeGroup(ctx context.Context, name string, nodeGroup *apiv1.MKSNodeGroup, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
+	// RemoveNodeGroup removes a worker node group from the cluster.
+	RemoveNodeGroup(ctx context.Context, name, nodeGroupName string, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
+
+	// Nodes returns a client for nodes within the named cluster.
+	Nodes(clusterName string) MKSNodeInterface
+	// WorkerNodeGroups returns a client for worker node groups within the named cluster.
+	WorkerNodeGroups(clusterName string) MKSWorkerNodeGroupInterface
+	// AuditEvents returns a read-only client for audit events within the named cluster.
+	AuditEvents(clusterName string) MKSAuditEventInterface
+}
+
+// MKSNodeInterface manages MKSNode resources within a cluster.
+type MKSNodeInterface interface {
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSNode, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSNodeList, error)
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+
+	// Drain evicts workloads from a node.
+	Drain(ctx context.Context, name string, req *apiv1.MKSDrainRequest, opts gpupaas.ActionOptions) (*apiv1.MKSNode, error)
+	// Cordon marks a node unschedulable.
+	Cordon(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.MKSNode, error)
+	// Uncordon marks a node schedulable.
+	Uncordon(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.MKSNode, error)
+}
+
+// MKSWorkerNodeGroupInterface manages MKSWorkerNodeGroup resources within a cluster.
+type MKSWorkerNodeGroupInterface interface {
+	Create(ctx context.Context, obj *apiv1.MKSWorkerNodeGroup, opts gpupaas.CreateOptions) (*apiv1.MKSWorkerNodeGroup, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSWorkerNodeGroup, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSWorkerNodeGroupList, error)
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+}
+
+// MKSAuditEventInterface provides read-only access to MKS audit events within a cluster.
+type MKSAuditEventInterface interface {
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSAuditEventList, error)
+	Get(ctx context.Context, id string, opts gpupaas.GetOptions) (*apiv1.MKSAuditEvent, error)
+}

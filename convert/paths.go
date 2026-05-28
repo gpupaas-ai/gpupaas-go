@@ -52,4 +52,26 @@ const (
 	InfraBaremetalMachineReinstallOSPath    = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/reinstallOS"
 	InfraBaremetalMachineConsoleSessionPath = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/consoleSessions"
 	InfraBaremetalMachineStatusPath         = "/apis/infra.k8smgmt.io/v3/projects/%s/baremetalmachines/%s/status"
+
+	// MKS (Managed Kubernetes Service) under the paas.envmgmt.io/v1 API group.
+	PaaSMKSAPIVersion = "paas.envmgmt.io/v1"
+
+	PaaSMKSClustersPath               = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters"
+	PaaSMKSClusterPath                = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s"
+	PaaSMKSClusterUpgradePath         = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/upgrade"
+	PaaSMKSClusterScaleNodeGroupPath  = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/scaleNodeGroup"
+	PaaSMKSClusterAddNodeGroupPath    = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/addNodeGroup"
+	PaaSMKSClusterRemoveNodeGroupPath = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/removeNodeGroup"
+
+	PaaSMKSNodesPath        = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/mksnodes"
+	PaaSMKSNodePath         = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/mksnodes/%s"
+	PaaSMKSNodeDrainPath    = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/mksnodes/%s/drain"
+	PaaSMKSNodeCordonPath   = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/mksnodes/%s/cordon"
+	PaaSMKSNodeUncordonPath = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/mksnodes/%s/uncordon"
+
+	PaaSMKSWorkerNodeGroupsPath = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/workernodegroups"
+	PaaSMKSWorkerNodeGroupPath  = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/workernodegroups/%s"
+
+	PaaSMKSAuditEventsPath = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/auditevents"
+	PaaSMKSAuditEventPath  = "/apis/paas.envmgmt.io/v1/projects/%s/mksclusters/%s/auditevents/%s"
 )

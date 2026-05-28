@@ -44,6 +44,11 @@ func AddToScheme(scheme *runtime.Scheme) {
 		&BaremetalMachine{},
 		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "baremetalmachines"},
 	)
+	scheme.AddKnownTypeWithName(
+		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindMKSCluster},
+		&MKSCluster{},
+		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "mksclusters"},
+	)
 }
 
 // DefaultScheme returns a scheme with all v1alpha1 types registered.

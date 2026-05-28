@@ -44,6 +44,10 @@ The public SDK speaks **Kubernetes-style** `gpupaas.ai/v1alpha1` objects. The re
 | VirtualMachine (project) | `VirtualMachine` | `GET/POST /apis/dev.envmgmt.io/v1/projects/{project}/virtualmachines`, `GET/DELETE .../{name}`, `GET .../status`, `POST .../action/{action}` |
 | VirtualMachine (workspace) | `VirtualMachine` | Same operations under `.../projects/{project}/workspaces/{name}/virtualmachines` |
 | BaremetalMachine | `BaremetalMachine`, `BaremetalMachineList`, `BaremetalMachineInfo`, `BaremetalConsoleSession` | `GET/POST /apis/infra.k8smgmt.io/v3/projects/{project}/baremetalmachines`, `GET/DELETE .../{name}`, `GET .../powerOn`, `GET .../powerOff`, `GET .../reboot`, `GET .../provision`, `POST .../reinstallOS`, `POST .../consoleSessions`, `GET .../status` |
+| MKSCluster | `MKSCluster`, `MKSClusterList` | `GET/POST /apis/paas.envmgmt.io/v1/projects/{project}/mksclusters`, `GET/DELETE .../{name}`, `POST .../upgrade`, `POST .../scaleNodeGroup`, `POST .../addNodeGroup`, `POST .../removeNodeGroup` |
+| MKSNode (cluster sub-resource) | `MKSNode`, `MKSNodeList` | `GET .../mksclusters/{cluster}/mksnodes`, `GET/DELETE .../{name}`, `POST .../drain`, `POST .../cordon`, `POST .../uncordon` |
+| MKSWorkerNodeGroup (cluster sub-resource) | `MKSWorkerNodeGroup`, `MKSWorkerNodeGroupList` | `GET/POST .../mksclusters/{cluster}/workernodegroups`, `GET/DELETE .../{name}` |
+| MKSAuditEvent (cluster sub-resource, read-only) | `MKSAuditEvent`, `MKSAuditEventList` | `GET .../mksclusters/{cluster}/auditevents`, `GET .../{id}` |
 
 Conversion lives in the `convert/` package (`ToAuthProject`, `FromPaaSWorkspace`, etc.). Verbose logging shows wire HTTP payloads; returned objects are always normalized to `gpupaas.ai/v1alpha1`.
 
@@ -104,6 +108,16 @@ GPUPAAS_API_KEY=... go run ./examples/baremetal-reboot -project demo -name examp
 GPUPAAS_API_KEY=... go run ./examples/baremetal-reinstall-os -project demo -name example-bm -image-url http://images/example.qcow2
 GPUPAAS_API_KEY=... go run ./examples/baremetal-console-session -project demo -name example-bm -compute-id compute-123
 GPUPAAS_API_KEY=... go run ./examples/baremetal-status -project demo -name example-bm
+go run ./examples/create-mks-cluster -memory -project demo -name my-cluster
+go run ./examples/get-mks-cluster -memory -project demo -name my-cluster
+go run ./examples/list-mks-clusters -memory -project demo
+go run ./examples/delete-mks-cluster -memory -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/mks-cluster-upgrade -project demo -name my-cluster -k8s-version 1.32
+GPUPAAS_API_KEY=... go run ./examples/mks-cluster-scale-nodegroup -project demo -name my-cluster -node-group wng-1 -desired-size 5
+GPUPAAS_API_KEY=... go run ./examples/list-mks-nodes -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/mks-node-drain -project demo -name my-cluster -node master-1
+GPUPAAS_API_KEY=... go run ./examples/list-mks-worker-node-groups -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/list-mks-audit-events -project demo -name my-cluster
 go run ./examples/apply_yaml ./manifest.yaml demo
 go run ./examples/delete_yaml ./manifest.yaml demo
 ```
@@ -146,6 +160,10 @@ Organization (implicit — from your API token)
 └── Project          metadata.name
     ├── VirtualMachine    project-scoped (metadata.project only)
     ├── BaremetalMachine  project-scoped (metadata.project only)
+    ├── MKSCluster        project-scoped (metadata.project only)
+    │   ├── MKSNode             cluster sub-resource
+    │   ├── MKSWorkerNodeGroup  cluster sub-resource
+    │   └── MKSAuditEvent       cluster sub-resource (read-only)
     └── Workspace    metadata.project + metadata.name
         ├── WorkspaceCollaborator
         └── VirtualMachine   workspace-scoped (metadata.project + metadata.workspace)
@@ -883,12 +901,190 @@ GPUPAAS_API_KEY=... go run ./examples/baremetal-status           -project demo -
 
 ---
 
+### MKSCluster
+
+**What it is for:** An **MKSCluster** (Managed Kubernetes Service) provisions and manages a Kubernetes cluster on gpupaas infrastructure. Creating a cluster persists it in the MKS database, syncs node entries, and triggers a WorkspaceComputeInstance to provision the cluster via the EaaS `mks-provision` environment template. The SDK also exposes per-cluster sub-resources: nodes, worker node groups, and audit events.
+
+**Scope:** Project-scoped only — requires `metadata.name` and `metadata.project`. **There is no workspace scope.** The wire `apiVersion` is `paas.envmgmt.io/v1`; the SDK normalizes reads to `gpupaas.ai/v1alpha1`. The `MKSProfile` resource from the MKS API is intentionally **not** part of this SDK.
+
+**Backend mapping** (`paas.envmgmt.io/v1`):
+
+| SDK operation | Backend call | Notes |
+|---------------|--------------|-------|
+| Create / Apply | `POST /apis/paas.envmgmt.io/v1/projects/{project}/mksclusters` | Upsert; persisted even if the provisioning trigger fails (with an error status) |
+| List | `GET .../mksclusters` | Supports `limit`, `offset` via `ListOptions` |
+| Get | `GET .../mksclusters/{name}` | |
+| Delete | `DELETE .../mksclusters/{name}` | Soft-delete; triggers a destroy WCI |
+| Upgrade | `POST .../mksclusters/{name}/upgrade` | Body `{k8sVersion, platformVersion}`; returns the updated cluster |
+| ScaleNodeGroup | `POST .../mksclusters/{name}/scaleNodeGroup` | Body `{nodeGroupName, desiredCount, minCount, maxCount}` |
+| AddNodeGroup | `POST .../mksclusters/{name}/addNodeGroup` | Body `{nodeGroup}` (an `MKSNodeGroup`) |
+| RemoveNodeGroup | `POST .../mksclusters/{name}/removeNodeGroup` | Body `{nodeGroupName}` |
+
+Sub-resource clients are reached through the cluster client:
+`cs.V1alpha1().MKSClusters(project).Nodes(cluster)`, `.WorkerNodeGroups(cluster)`, `.AuditEvents(cluster)`.
+
+| Sub-resource | SDK operations | Backend call |
+|--------------|----------------|--------------|
+| MKSNode | List, Get, Delete, Drain, Cordon, Uncordon | `GET .../mksnodes`, `GET/DELETE .../{name}`, `POST .../{name}/{drain\|cordon\|uncordon}` |
+| MKSWorkerNodeGroup | List, Get, Create (apply), Delete | `GET/POST .../workernodegroups`, `GET/DELETE .../{name}` |
+| MKSAuditEvent | List, Get (by id) | `GET .../auditevents`, `GET .../auditevents/{id}` (read-only) |
+
+> The generic remote backend (`client.Apply/Get/List/Delete`) supports `MKSCluster` only. Sub-resources require a cluster name and are accessed through the typed clientset.
+
+#### Create / Apply
+
+```yaml
+apiVersion: gpupaas.ai/v1alpha1
+kind: MKSCluster
+metadata:
+  name: my-cluster
+  project: demo
+spec:
+  kubernetesVersion: "1.31"
+  cni: calico
+  os: ubuntu22.04
+  haEnabled: false
+  dedicatedControlPlane: false
+  blueprint:
+    name: minimal
+    version: v1
+  networking:
+    podCidr: 192.168.0.0/16
+    serviceCidr: 10.96.0.0/12
+    ipFamily: IPv4
+  nodes:
+    - hostname: master-1
+      privateIp: 10.0.0.10
+      sshUserName: ubuntu
+      sshKey: "-----BEGIN OPENSSH PRIVATE KEY-----\n..."
+      roles: [master, worker]
+      arch: amd64
+      operatingSystem: ubuntu22.04
+```
+
+#### `metadata` fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Unique cluster name within the project |
+| `project` | yes | Owning project name |
+| `labels` / `annotations` | no | Tags and tooling metadata |
+
+#### `spec` fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kubernetesVersion` | string | Kubernetes version in `major.minor` form (e.g. `1.31`) |
+| `platformVersion` | string | Platform version |
+| `cni` / `cniVersion` | string | CNI provider and version (e.g. `calico`) |
+| `os` | string | Node operating system (e.g. `ubuntu22.04`) |
+| `haEnabled` | bool | Highly-available control plane |
+| `dedicatedControlPlane` | bool | Dedicate control-plane nodes (no workloads) |
+| `location` | string | Cluster location/datacenter |
+| `blueprint` | `MKSBlueprint` | `name` + `version` of the cluster blueprint |
+| `networking` | `MKSNetworking` | `vpc`, `subnet`, `podCidr`, `serviceCidr`, `ipFamily`, `securityGroups`, … |
+| `proxy` | `MKSProxy` | `httpProxy`, `httpsProxy`, `noProxy`, `proxyRootCa`, `tlsTerminate` |
+| `storage` | `MKSStorage` | `block` / `sharedFs` / `object` / `highSpeed` backends + `defaultStorageClass` |
+| `tags` | map | Free-form key/value tags |
+| `controlPlaneNodeGroup` | `MKSNodeGroup` | Control-plane node group spec |
+| `workerNodeGroups` | `[]MKSNodeGroup` | Worker node group specs |
+| `nodes` | `[]MKSNodeSpec` | Node specifications for device-based clusters |
+
+`MKSNodeGroup` carries `id`, `sku`, `scalingMode`, `nodeCount`, `minNodes`, `maxNodes`, `desiredNodes`, `publicIp`, `sshKey`, `userData`, `nodeLabels`, `nodeAnnotations`, and `kubeletConfig`. `MKSNodeSpec` carries `hostname`, `roles`, `sshUserName`, `sshKey`, `sshPort`, `privateIp`, `arch`, `operatingSystem`, `interface`, `nodeLabels`, `nodeAnnotations`, `nodeTaints`, `userData`, `kubeletConfig`, `nodePool`, `sku`, and `publicIp`.
+
+#### `status` fields (read-only)
+
+| Field | Description |
+|-------|-------------|
+| `condition` | Cluster condition (e.g. `MKS_CLUSTER_STATUS_PROVISIONING`, `MKS_CLUSTER_STATUS_RUNNING`, `MKS_CLUSTER_STATUS_ERROR`) |
+| `conditionReason` | Human-readable reason |
+| `output` | `apiServerEndpoint`, `clusterIdEdgesrv` |
+| `action` | Last action |
+
+#### Imperative sub-actions
+
+```go
+clusters := cs.V1alpha1().MKSClusters("demo")
+
+// Upgrade Kubernetes version
+_, _ = clusters.Upgrade(ctx, "my-cluster", &v1alpha1.MKSUpgradeRequest{
+    K8sVersion: "1.32",
+}, gpupaas.ActionOptions{})
+
+// Scale a worker node group
+desired := int32(5)
+_, _ = clusters.ScaleNodeGroup(ctx, "my-cluster", &v1alpha1.MKSScaleNodeGroupRequest{
+    NodeGroupName: "wng-1",
+    DesiredCount:  &desired,
+}, gpupaas.ActionOptions{})
+
+// Add / remove worker node groups
+_, _ = clusters.AddNodeGroup(ctx, "my-cluster", &v1alpha1.MKSNodeGroup{ID: "wng-2", SKU: "small"}, gpupaas.ActionOptions{})
+_, _ = clusters.RemoveNodeGroup(ctx, "my-cluster", "wng-1", gpupaas.ActionOptions{})
+```
+
+#### Node, worker node group, and audit event sub-clients
+
+```go
+clusters := cs.V1alpha1().MKSClusters("demo")
+
+// Nodes
+nodes := clusters.Nodes("my-cluster")
+nodeList, _ := nodes.List(ctx, gpupaas.ListOptions{})
+force := true
+_, _ = nodes.Drain(ctx, "master-1", &v1alpha1.MKSDrainRequest{Force: &force}, gpupaas.ActionOptions{})
+_, _ = nodes.Cordon(ctx, "master-1", gpupaas.ActionOptions{})
+_, _ = nodes.Uncordon(ctx, "master-1", gpupaas.ActionOptions{})
+
+// Worker node groups (apply = create/update)
+wngs := clusters.WorkerNodeGroups("my-cluster")
+_, _ = wngs.Create(ctx, &v1alpha1.MKSWorkerNodeGroup{
+    Metadata: v1alpha1.ObjectMeta{Name: "wng-1", Project: "demo"},
+    Spec:     v1alpha1.MKSWorkerNodeGroupSpec{NodeGroup: &v1alpha1.MKSNodeGroup{ID: "wng-1", SKU: "medium"}},
+}, gpupaas.CreateOptions{})
+
+// Audit events (read-only)
+events := clusters.AuditEvents("my-cluster")
+evtList, _ := events.List(ctx, gpupaas.ListOptions{})
+```
+
+#### Typed client
+
+```go
+clusters := cs.V1alpha1().MKSClusters("demo")
+list, _ := clusters.List(ctx, gpupaas.ListOptions{})
+cluster, _ := clusters.Create(ctx, &v1alpha1.MKSCluster{
+    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindMKSCluster},
+    Metadata: v1alpha1.ObjectMeta{Name: "my-cluster", Project: "demo"},
+    Spec:     v1alpha1.MKSClusterSpec{KubernetesVersion: "1.31", CNI: "calico"},
+}, gpupaas.CreateOptions{})
+_, _ = clusters.Get(ctx, "my-cluster", gpupaas.GetOptions{})
+_ = clusters.Delete(ctx, "my-cluster", gpupaas.DeleteOptions{})
+```
+
+#### Examples
+
+```bash
+go run ./examples/create-mks-cluster -memory -project demo -name my-cluster
+go run ./examples/get-mks-cluster -memory -project demo -name my-cluster
+go run ./examples/list-mks-clusters -memory -project demo
+go run ./examples/delete-mks-cluster -memory -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/mks-cluster-upgrade          -project demo -name my-cluster -k8s-version 1.32
+GPUPAAS_API_KEY=... go run ./examples/mks-cluster-scale-nodegroup  -project demo -name my-cluster -node-group wng-1 -desired-size 5
+GPUPAAS_API_KEY=... go run ./examples/list-mks-nodes              -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/mks-node-drain             -project demo -name my-cluster -node master-1
+GPUPAAS_API_KEY=... go run ./examples/list-mks-worker-node-groups -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/list-mks-audit-events       -project demo -name my-cluster
+```
+
+---
+
 ### Shared metadata conventions
 
 | Field | Used on | Notes |
 |-------|---------|-------|
 | `metadata.name` | All resources | Primary identifier; immutable after create |
-| `metadata.project` | Workspace, VirtualMachine, BaremetalMachine, Storage, SecurityGroup, SshKey, WorkspaceCollaborator | Parent project; required for scoped resources |
+| `metadata.project` | Workspace, VirtualMachine, BaremetalMachine, MKSCluster, Storage, SecurityGroup, SshKey, WorkspaceCollaborator | Parent project; required for scoped resources |
 | `metadata.workspace` | VirtualMachine, Storage, SecurityGroup, SshKey (workspace scope), WorkspaceCollaborator | Parent workspace within a project |
 | `metadata.displayName` | All | Optional human-friendly name. Sent on writes. |
 | `metadata.description` | All | Optional human-readable description. Sent on writes. |
