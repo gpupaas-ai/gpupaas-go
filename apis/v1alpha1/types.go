@@ -16,6 +16,9 @@ const (
 	KindSecurityGroup         = "SecurityGroup"
 	KindSshKey                = "SshKey"
 	KindBaremetalMachine      = "BaremetalMachine"
+	KindMKSCluster            = "MKSCluster"
+	KindMKSNode               = "MKSNode"
+	KindMKSWorkerNodeGroup    = "MKSWorkerNodeGroup"
 )
 
 // Workspace collaborator roles on the paas.envmgmt.io API.

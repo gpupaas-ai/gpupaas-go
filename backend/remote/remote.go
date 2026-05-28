@@ -76,6 +76,9 @@ func (b *Backend) Apply(ctx context.Context, obj runtime.Object) (runtime.Object
 	case *v1alpha1.BaremetalMachine:
 		bms := b.client.V1alpha1().BaremetalMachines(o.Metadata.Project)
 		return bms.Create(ctx, o, gpupaas.CreateOptions{})
+	case *v1alpha1.MKSCluster:
+		clusters := b.client.V1alpha1().MKSClusters(o.Metadata.Project)
+		return clusters.Create(ctx, o, gpupaas.CreateOptions{})
 	default:
 		return nil, fmt.Errorf("unsupported kind %q for remote apply", obj.GetKind())
 	}
@@ -111,6 +114,8 @@ func (b *Backend) Get(ctx context.Context, gvk runtime.GroupVersionKind, project
 		return b.client.V1alpha1().SshKeys(project).Get(ctx, name, gpupaas.GetOptions{})
 	case v1alpha1.KindBaremetalMachine:
 		return b.client.V1alpha1().BaremetalMachines(project).Get(ctx, name, gpupaas.GetOptions{})
+	case v1alpha1.KindMKSCluster:
+		return b.client.V1alpha1().MKSClusters(project).Get(ctx, name, gpupaas.GetOptions{})
 	default:
 		return nil, fmt.Errorf("unsupported kind %q for remote get", gvk.Kind)
 	}
@@ -205,6 +210,12 @@ func (b *Backend) List(ctx context.Context, gvk runtime.GroupVersionKind, opts b
 			return nil, err
 		}
 		return list.GetItems(), nil
+	case v1alpha1.KindMKSCluster:
+		list, err := b.client.V1alpha1().MKSClusters(opts.Project).List(ctx, gpupaas.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return list.GetItems(), nil
 	default:
 		return nil, fmt.Errorf("unsupported kind %q for remote list", gvk.Kind)
 	}
@@ -240,6 +251,8 @@ func (b *Backend) Delete(ctx context.Context, gvk runtime.GroupVersionKind, proj
 		return b.client.V1alpha1().SshKeys(project).Delete(ctx, name, gpupaas.DeleteOptions{})
 	case v1alpha1.KindBaremetalMachine:
 		return b.client.V1alpha1().BaremetalMachines(project).Delete(ctx, name, gpupaas.DeleteOptions{})
+	case v1alpha1.KindMKSCluster:
+		return b.client.V1alpha1().MKSClusters(project).Delete(ctx, name, gpupaas.DeleteOptions{})
 	default:
 		return fmt.Errorf("unsupported kind %q for remote delete", gvk.Kind)
 	}
