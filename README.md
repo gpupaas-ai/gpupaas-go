@@ -1,6 +1,6 @@
 # gpupaas-go
 
-Go SDK for the [gpupaas.ai](https://gpupaas.ai) API. Shared client library for **gpupaasctl**, **terraform-provider-gpupaas**, and custom automation.
+Go SDK for the [gpupaas.ai](https://gpupaas.ai) API. Shared client library for **terraform-provider-gpupaas**, and custom automation.
 
 The API uses a Kubernetes-inspired resource shape (`apiVersion`, `kind`, `metadata`, `spec`, `status`) with gpupaas-native scoping:
 
