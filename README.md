@@ -717,4 +717,4 @@ When applying YAML with `apply.ApplyFile`, pass the default project (and workspa
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE).
