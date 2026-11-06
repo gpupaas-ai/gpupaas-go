@@ -1,8 +1,10 @@
 package convert
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	apiv1 "github.com/gpupaas-ai/gpupaas-go/apis/v1alpha1"
 )
@@ -12,7 +14,7 @@ const (
 	DevStorageListKind = "StorageList"
 )
 
-// StoragePaths returns collection and item path builders for the given scope.
+// StoragePaths returns the collection and item path builders for the given scope.
 func StoragePaths(scope DevScope) (collection func() string, item func(name string) string) {
 	if scope.Workspace != "" {
 		return func() string {
@@ -32,23 +34,27 @@ func StoragePaths(scope DevScope) (collection func() string, item func(name stri
 
 // DevStorageSpec is the wire spec for storage.
 type DevStorageSpec struct {
-	Storage                   DevResourceRef  `json:"storage"`
+	// Storage names the profile again, as the platform's own CLI sends it. A controller reads the profile from
+	// Type; the reference is written for compatibility and never read back.
+	Storage                   *DevResourceRef `json:"storage,omitempty"`
 	Type                      string          `json:"type,omitempty"`
 	Size                      string          `json:"size,omitempty"`
 	Datacenter                string          `json:"datacenter,omitempty"`
+	StorageType               string          `json:"storage_type,omitempty"`
 	AccessPolicy              string          `json:"access_policy,omitempty"`
 	ContractTerm              string          `json:"contract_term,omitempty"`
 	EnableEncryptionAtRest    string          `json:"enable_encryption_at_rest,omitempty"`
 	EnableEncryptionInTransit string          `json:"enable_encryption_in_transit,omitempty"`
 	Sharing                   *DevSharingSpec `json:"sharing,omitempty"`
-	StorageType               string          `json:"storage_type,omitempty"`
 }
 
-// DevStorageStatus is runtime status on the wire.
+// DevStorageStatus is runtime status on the wire. Output holds values of mixed types (strings and numbers), kept as
+// raw JSON so that no number is rounded on the way through a float64.
 type DevStorageStatus struct {
-	Status string `json:"status,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	Action string `json:"action,omitempty"`
+	Status string                     `json:"status,omitempty"`
+	Reason string                     `json:"reason,omitempty"`
+	Action string                     `json:"action,omitempty"`
+	Output map[string]json.RawMessage `json:"output,omitempty"`
 }
 
 // DevStorage is the wire format for storage CRUD.
@@ -68,98 +74,101 @@ type DevStorageList struct {
 	Items      []DevStorage     `json:"items"`
 }
 
-// ToDevStorage converts SDK storage to wire format.
+// ToDevStorage converts an SDK storage to the wire format.
 func ToDevStorage(s *apiv1.Storage, project, workspace string) *DevStorage {
 	if s == nil {
 		return nil
+	}
+	spec := DevStorageSpec{
+		Type:                      s.Spec.Type,
+		Size:                      s.Spec.Size,
+		Datacenter:                s.Spec.Datacenter,
+		StorageType:               s.Spec.StorageType,
+		AccessPolicy:              s.Spec.AccessPolicy,
+		ContractTerm:              s.Spec.ContractTerm,
+		EnableEncryptionAtRest:    s.Spec.EnableEncryptionAtRest,
+		EnableEncryptionInTransit: s.Spec.EnableEncryptionInTransit,
+	}
+	if s.Spec.Type != "" {
+		spec.Storage = &DevResourceRef{Name: s.Spec.Type}
+	}
+	if s.Spec.Sharing != nil {
+		spec.Sharing = toDevSharing(*s.Spec.Sharing)
 	}
 	return &DevStorage{
 		APIVersion: DevAPIVersion,
 		Kind:       DevStorageKind,
 		Metadata:   devMetadataToWire(s.Metadata, project, workspace),
-		Spec:       toDevStorageSpec(s.Spec),
-		Status:     DevStorageStatus{},
+		Spec:       spec,
 	}
 }
 
-func toDevStorageSpec(s apiv1.StorageSpec) DevStorageSpec {
-	out := DevStorageSpec{
-		Storage: DevResourceRef{
-			Name:          s.Storage.Name,
-			SystemCatalog: s.Storage.SystemCatalog,
-		},
-		Type:                      s.Type,
-		Size:                      s.Size,
-		Datacenter:                s.Datacenter,
-		AccessPolicy:              s.AccessPolicy,
-		ContractTerm:              s.ContractTerm,
-		EnableEncryptionAtRest:    s.EnableEncryptionAtRest,
-		EnableEncryptionInTransit: s.EnableEncryptionInTransit,
-		StorageType:               s.StorageType,
-	}
-	if s.Sharing != nil {
-		out.Sharing = toDevSharing(*s.Sharing)
-	}
-	return out
-}
-
-// FromDevStorage converts wire format to SDK storage.
+// FromDevStorage converts wire format to an SDK storage.
 func FromDevStorage(wire *DevStorage, workspace string) *apiv1.Storage {
 	if wire == nil {
 		return nil
 	}
-	return &apiv1.Storage{
-		TypeMeta: apiv1.TypeMeta{
-			APIVersion: apiv1.APIVersion,
-			Kind:       apiv1.KindStorage,
-		},
+	out := &apiv1.Storage{
+		TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: apiv1.KindStorage},
 		Metadata: devMetadataFromWire(wire.Metadata, workspace),
-		Spec:     fromDevStorageSpec(wire.Spec),
-		Status:   fromDevStorageStatus(wire.Status),
-	}
-}
-
-func fromDevStorageSpec(s DevStorageSpec) apiv1.StorageSpec {
-	out := apiv1.StorageSpec{
-		Storage: apiv1.ResourceRef{
-			Name:          s.Storage.Name,
-			SystemCatalog: s.Storage.SystemCatalog,
+		Spec: apiv1.StorageSpec{
+			Type:                      wire.Spec.Type,
+			Size:                      wire.Spec.Size,
+			Datacenter:                wire.Spec.Datacenter,
+			StorageType:               wire.Spec.StorageType,
+			AccessPolicy:              wire.Spec.AccessPolicy,
+			ContractTerm:              wire.Spec.ContractTerm,
+			EnableEncryptionAtRest:    wire.Spec.EnableEncryptionAtRest,
+			EnableEncryptionInTransit: wire.Spec.EnableEncryptionInTransit,
 		},
-		Type:                      s.Type,
-		Size:                      s.Size,
-		Datacenter:                s.Datacenter,
-		AccessPolicy:              s.AccessPolicy,
-		ContractTerm:              s.ContractTerm,
-		EnableEncryptionAtRest:    s.EnableEncryptionAtRest,
-		EnableEncryptionInTransit: s.EnableEncryptionInTransit,
-		StorageType:               s.StorageType,
+		Status: apiv1.StorageStatus{
+			Status: wire.Status.Status,
+			Reason: wire.Status.Reason,
+			Action: wire.Status.Action,
+			Output: outputStrings(wire.Status.Output),
+		},
 	}
-	if s.Sharing != nil {
-		out.Sharing = fromDevSharing(*s.Sharing)
+	if wire.Spec.Sharing != nil {
+		out.Spec.Sharing = fromDevSharing(*wire.Spec.Sharing)
 	}
 	return out
 }
 
-func fromDevStorageStatus(s DevStorageStatus) apiv1.StorageStatus {
-	return apiv1.StorageStatus{
-		Status: s.Status,
-		Reason: s.Reason,
-		Action: s.Action,
+// outputStrings turns the mixed-type output of a storage into strings. A string stays as it is; a number keeps the
+// digits the platform sent (volume_size 100000000000 stays 100000000000, whatever its size); null is empty; a bool or
+// a nested value is its JSON.
+func outputStrings(in map[string]json.RawMessage) map[string]string {
+	if len(in) == 0 {
+		return nil
 	}
-}
-
-// FromDevStorageList converts a wire list to SDK storage list.
-func FromDevStorageList(wire *DevStorageList, workspace string) *apiv1.StorageList {
-	if wire == nil {
-		return &apiv1.StorageList{
-			TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: apiv1.KindStorage + "List"},
+	out := make(map[string]string, len(in))
+	for k, raw := range in {
+		text := strings.TrimSpace(string(raw))
+		switch {
+		case text == "" || text == "null":
+			out[k] = ""
+		case strings.HasPrefix(text, `"`):
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				out[k] = text
+			} else {
+				out[k] = v
+			}
+		default:
+			out[k] = text
 		}
 	}
+	return out
+}
+
+// FromDevStorageList converts a wire list to an SDK storage list.
+func FromDevStorageList(wire *DevStorageList, workspace string) *apiv1.StorageList {
 	out := &apiv1.StorageList{
-		TypeMeta: apiv1.TypeMeta{
-			APIVersion: apiv1.APIVersion,
-			Kind:       apiv1.KindStorage + "List",
-		},
+		TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: DevStorageListKind},
+		Items:    make([]apiv1.Storage, 0),
+	}
+	if wire == nil {
+		return out
 	}
 	out.Metadata.Continue = devListContinue(wire.Metadata, len(wire.Items))
 	for i := range wire.Items {

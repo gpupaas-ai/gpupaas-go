@@ -35,190 +35,9 @@ func copyDevSharingSpec(s *DevSharingSpec) *DevSharingSpec {
 	return &sh
 }
 
-// StorageSpec holds desired storage state.
-type StorageSpec struct {
-	Storage                   ResourceRef     `json:"storage" yaml:"storage"`
-	Type                      string          `json:"type,omitempty" yaml:"type,omitempty"`
-	Size                      string          `json:"size,omitempty" yaml:"size,omitempty"`
-	Datacenter                string          `json:"datacenter,omitempty" yaml:"datacenter,omitempty"`
-	AccessPolicy              string          `json:"accessPolicy,omitempty" yaml:"accessPolicy,omitempty"`
-	ContractTerm              string          `json:"contractTerm,omitempty" yaml:"contractTerm,omitempty"`
-	EnableEncryptionAtRest    string          `json:"enableEncryptionAtRest,omitempty" yaml:"enableEncryptionAtRest,omitempty"`
-	EnableEncryptionInTransit string          `json:"enableEncryptionInTransit,omitempty" yaml:"enableEncryptionInTransit,omitempty"`
-	Sharing                   *DevSharingSpec `json:"sharing,omitempty" yaml:"sharing,omitempty"`
-	StorageType               string          `json:"storageType,omitempty" yaml:"storageType,omitempty"`
-}
-
-// StorageStatus holds observed storage state.
-type StorageStatus struct {
-	Status string `json:"status,omitempty" yaml:"status,omitempty"`
-	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
-	Action string `json:"action,omitempty" yaml:"action,omitempty"`
-}
-
-// Storage is a dev storage resource.
-type Storage struct {
-	TypeMeta `json:",inline" yaml:",inline"`
-	Metadata ObjectMeta    `json:"metadata" yaml:"metadata"`
-	Spec     StorageSpec   `json:"spec,omitempty" yaml:"spec,omitempty"`
-	Status   StorageStatus `json:"status,omitempty" yaml:"status,omitempty"`
-}
-
-func (s *Storage) GetAPIVersion() string { return s.APIVersion }
-func (s *Storage) GetKind() string       { return s.Kind }
-func (s *Storage) GetName() string       { return s.Metadata.Name }
-func (s *Storage) GetProject() string    { return s.Metadata.Project }
-func (s *Storage) GetWorkspace() string  { return s.Metadata.Workspace }
-func (s *Storage) SetProject(val string) { s.Metadata.Project = val }
-func (s *Storage) SetWorkspace(val string) {
-	s.Metadata.Workspace = val
-}
-func (s *Storage) DeepCopyObject() runtime.Object {
-	cp := *s
-	cp.Metadata = copyObjectMeta(s.Metadata)
-	cp.Spec = copyStorageSpec(s.Spec)
-	return &cp
-}
-
-func copyStorageSpec(s StorageSpec) StorageSpec {
-	cp := s
-	cp.Sharing = copyDevSharingSpec(s.Sharing)
-	return cp
-}
-
-// StorageList is a list of Storage resources.
-type StorageList struct {
-	TypeMeta `json:",inline" yaml:",inline"`
-	Metadata ListMeta  `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Items    []Storage `json:"items" yaml:"items"`
-}
-
-func (l *StorageList) GetAPIVersion() string { return l.APIVersion }
-func (l *StorageList) GetKind() string       { return l.Kind }
-func (l *StorageList) GetItems() []runtime.Object {
-	out := make([]runtime.Object, len(l.Items))
-	for i := range l.Items {
-		out[i] = l.Items[i].DeepCopyObject()
-	}
-	return out
-}
-func (l *StorageList) SetItems(items []runtime.Object) {
-	l.Items = make([]Storage, len(items))
-	for i, item := range items {
-		if s, ok := item.(*Storage); ok {
-			l.Items[i] = *s
-		}
-	}
-}
-
-// IpRule is an IP-based security group rule.
-type IpRule struct {
-	SourceCIDR  string `json:"sourceCidr,omitempty" yaml:"sourceCidr,omitempty"`
-	Application string `json:"application,omitempty" yaml:"application,omitempty"`
-	Action      string `json:"action,omitempty" yaml:"action,omitempty"`
-}
-
-// PortForwardRule is a port-forwarding security group rule.
-type PortForwardRule struct {
-	SourceCIDR      string `json:"sourceCidr,omitempty" yaml:"sourceCidr,omitempty"`
-	Application     string `json:"application,omitempty" yaml:"application,omitempty"`
-	ApplicationPort string `json:"applicationPort,omitempty" yaml:"applicationPort,omitempty"`
-	Protocol        string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
-}
-
-// Rule is a security group access rule.
-type Rule struct {
-	SourceCIDR      string `json:"sourceCidr,omitempty" yaml:"sourceCidr,omitempty"`
-	Application     string `json:"application,omitempty" yaml:"application,omitempty"`
-	ApplicationPort string `json:"applicationPort,omitempty" yaml:"applicationPort,omitempty"`
-	Protocol        string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
-	Action          string `json:"action,omitempty" yaml:"action,omitempty"`
-}
-
-// SecurityGroupSpec holds desired security group state.
-type SecurityGroupSpec struct {
-	SecurityGroup    ResourceRef       `json:"securityGroup" yaml:"securityGroup"`
-	Type             string            `json:"type,omitempty" yaml:"type,omitempty"`
-	IPRules          []IpRule          `json:"ipRules,omitempty" yaml:"ipRules,omitempty"`
-	PortForwardRules []PortForwardRule `json:"portForwardRules,omitempty" yaml:"portForwardRules,omitempty"`
-	Rules            []Rule            `json:"rules,omitempty" yaml:"rules,omitempty"`
-	Sharing          *DevSharingSpec   `json:"sharing,omitempty" yaml:"sharing,omitempty"`
-}
-
-// SecurityGroupStatus holds observed security group state.
-type SecurityGroupStatus struct {
-	Status string `json:"status,omitempty" yaml:"status,omitempty"`
-	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
-	Action string `json:"action,omitempty" yaml:"action,omitempty"`
-}
-
-// SecurityGroup is a dev security group resource.
-type SecurityGroup struct {
-	TypeMeta `json:",inline" yaml:",inline"`
-	Metadata ObjectMeta          `json:"metadata" yaml:"metadata"`
-	Spec     SecurityGroupSpec   `json:"spec,omitempty" yaml:"spec,omitempty"`
-	Status   SecurityGroupStatus `json:"status,omitempty" yaml:"status,omitempty"`
-}
-
-func (s *SecurityGroup) GetAPIVersion() string { return s.APIVersion }
-func (s *SecurityGroup) GetKind() string       { return s.Kind }
-func (s *SecurityGroup) GetName() string       { return s.Metadata.Name }
-func (s *SecurityGroup) GetProject() string    { return s.Metadata.Project }
-func (s *SecurityGroup) GetWorkspace() string  { return s.Metadata.Workspace }
-func (s *SecurityGroup) SetProject(val string) { s.Metadata.Project = val }
-func (s *SecurityGroup) SetWorkspace(val string) {
-	s.Metadata.Workspace = val
-}
-func (s *SecurityGroup) DeepCopyObject() runtime.Object {
-	cp := *s
-	cp.Metadata = copyObjectMeta(s.Metadata)
-	cp.Spec = copySecurityGroupSpec(s.Spec)
-	return &cp
-}
-
-func copySecurityGroupSpec(s SecurityGroupSpec) SecurityGroupSpec {
-	cp := s
-	if len(s.IPRules) > 0 {
-		cp.IPRules = append([]IpRule(nil), s.IPRules...)
-	}
-	if len(s.PortForwardRules) > 0 {
-		cp.PortForwardRules = append([]PortForwardRule(nil), s.PortForwardRules...)
-	}
-	if len(s.Rules) > 0 {
-		cp.Rules = append([]Rule(nil), s.Rules...)
-	}
-	cp.Sharing = copyDevSharingSpec(s.Sharing)
-	return cp
-}
-
-// SecurityGroupList is a list of SecurityGroup resources.
-type SecurityGroupList struct {
-	TypeMeta `json:",inline" yaml:",inline"`
-	Metadata ListMeta        `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Items    []SecurityGroup `json:"items" yaml:"items"`
-}
-
-func (l *SecurityGroupList) GetAPIVersion() string { return l.APIVersion }
-func (l *SecurityGroupList) GetKind() string       { return l.Kind }
-func (l *SecurityGroupList) GetItems() []runtime.Object {
-	out := make([]runtime.Object, len(l.Items))
-	for i := range l.Items {
-		out[i] = l.Items[i].DeepCopyObject()
-	}
-	return out
-}
-func (l *SecurityGroupList) SetItems(items []runtime.Object) {
-	l.Items = make([]SecurityGroup, len(items))
-	for i, item := range items {
-		if s, ok := item.(*SecurityGroup); ok {
-			l.Items[i] = *s
-		}
-	}
-}
-
-// SshKeySpec holds desired SSH key state.
+// SshKeySpec holds desired SSH key state. The platform has no update for an SSH key: it is created
+// and deleted, so every field is fixed once the key exists.
 type SshKeySpec struct {
-	SSHKey    ResourceRef     `json:"sshKey" yaml:"sshKey"`
 	Type      string          `json:"type,omitempty" yaml:"type,omitempty"`
 	Name      string          `json:"name,omitempty" yaml:"name,omitempty"`
 	PublicKey string          `json:"publicKey,omitempty" yaml:"publicKey,omitempty"`
@@ -282,6 +101,89 @@ func (l *SshKeyList) SetItems(items []runtime.Object) {
 	l.Items = make([]SshKey, len(items))
 	for i, item := range items {
 		if s, ok := item.(*SshKey); ok {
+			l.Items[i] = *s
+		}
+	}
+}
+
+// Rule is one access rule of a security group. Application names a well-known service ("ssh",
+// "http", ...) or "custom" with ApplicationPort.
+type Rule struct {
+	SourceCIDR      string `json:"sourceCidr,omitempty" yaml:"sourceCidr,omitempty"`
+	Application     string `json:"application,omitempty" yaml:"application,omitempty"`
+	ApplicationPort string `json:"applicationPort,omitempty" yaml:"applicationPort,omitempty"`
+	Protocol        string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
+	Action          string `json:"action,omitempty" yaml:"action,omitempty"`
+}
+
+// SecurityGroupSpec holds desired security group state. The platform has no update for a security
+// group: it is created and deleted.
+type SecurityGroupSpec struct {
+	Type    string          `json:"type,omitempty" yaml:"type,omitempty"`
+	Rules   []Rule          `json:"rules,omitempty" yaml:"rules,omitempty"`
+	Sharing *DevSharingSpec `json:"sharing,omitempty" yaml:"sharing,omitempty"`
+}
+
+// SecurityGroupStatus holds observed security group state.
+type SecurityGroupStatus struct {
+	Status string `json:"status,omitempty" yaml:"status,omitempty"`
+	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Action string `json:"action,omitempty" yaml:"action,omitempty"`
+}
+
+// SecurityGroup is a dev security group resource, at project or workspace scope.
+type SecurityGroup struct {
+	TypeMeta `json:",inline" yaml:",inline"`
+	Metadata ObjectMeta          `json:"metadata" yaml:"metadata"`
+	Spec     SecurityGroupSpec   `json:"spec,omitempty" yaml:"spec,omitempty"`
+	Status   SecurityGroupStatus `json:"status,omitempty" yaml:"status,omitempty"`
+}
+
+func (s *SecurityGroup) GetAPIVersion() string { return s.APIVersion }
+func (s *SecurityGroup) GetKind() string       { return s.Kind }
+func (s *SecurityGroup) GetName() string       { return s.Metadata.Name }
+func (s *SecurityGroup) GetProject() string    { return s.Metadata.Project }
+func (s *SecurityGroup) GetWorkspace() string  { return s.Metadata.Workspace }
+func (s *SecurityGroup) SetProject(val string) { s.Metadata.Project = val }
+func (s *SecurityGroup) SetWorkspace(val string) {
+	s.Metadata.Workspace = val
+}
+func (s *SecurityGroup) DeepCopyObject() runtime.Object {
+	cp := *s
+	cp.Metadata = copyObjectMeta(s.Metadata)
+	cp.Spec = copySecurityGroupSpec(s.Spec)
+	return &cp
+}
+
+func copySecurityGroupSpec(s SecurityGroupSpec) SecurityGroupSpec {
+	cp := s
+	if len(s.Rules) > 0 {
+		cp.Rules = append([]Rule(nil), s.Rules...)
+	}
+	cp.Sharing = copyDevSharingSpec(s.Sharing)
+	return cp
+}
+
+// SecurityGroupList is a list of SecurityGroup resources.
+type SecurityGroupList struct {
+	TypeMeta `json:",inline" yaml:",inline"`
+	Metadata ListMeta        `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Items    []SecurityGroup `json:"items" yaml:"items"`
+}
+
+func (l *SecurityGroupList) GetAPIVersion() string { return l.APIVersion }
+func (l *SecurityGroupList) GetKind() string       { return l.Kind }
+func (l *SecurityGroupList) GetItems() []runtime.Object {
+	out := make([]runtime.Object, len(l.Items))
+	for i := range l.Items {
+		out[i] = l.Items[i].DeepCopyObject()
+	}
+	return out
+}
+func (l *SecurityGroupList) SetItems(items []runtime.Object) {
+	l.Items = make([]SecurityGroup, len(items))
+	for i, item := range items {
+		if s, ok := item.(*SecurityGroup); ok {
 			l.Items[i] = *s
 		}
 	}

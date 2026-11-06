@@ -1,308 +1,290 @@
 package v1alpha1
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strconv"
 
 	gpupaas "github.com/gpupaas-ai/gpupaas-go"
 	apiv1 "github.com/gpupaas-ai/gpupaas-go/apis/v1alpha1"
 	"github.com/gpupaas-ai/gpupaas-go/convert"
 	"github.com/gpupaas-ai/gpupaas-go/rest"
+	"gopkg.in/yaml.v3"
 )
 
-// ---------------------------------------------------------------------------
-// MKSCluster client (project-scoped)
-// ---------------------------------------------------------------------------
-
+// mksClusterClient implements MKSClusterInterface for project scope (workspace == "") or
+// workspace scope.
 type mksClusterClient struct {
-	rest    *rest.Client
-	project string
+	devScopedClient
 }
 
-func newMKSClusterClient(restClient *rest.Client, project string) *mksClusterClient {
-	return &mksClusterClient{rest: restClient, project: project}
+func newMKSClusterClient(restClient *rest.Client, project, workspace string) *mksClusterClient {
+	return &mksClusterClient{devScopedClient{rest: restClient, project: project, workspace: workspace}}
 }
 
-func (c *mksClusterClient) scope() convert.PaaSMKSScope {
-	return convert.PaaSMKSScope{Project: c.project}
+func (c *mksClusterClient) paths() (collection func() string, item func(string) string) {
+	return convert.MKSClusterPaths(c.scope())
 }
 
-func (c *mksClusterClient) Create(ctx context.Context, obj *apiv1.MKSCluster, _ gpupaas.CreateOptions) (*apiv1.MKSCluster, error) {
+// failOnExistsQuery makes the backend answer 409 instead of updating when a cluster of that name exists.
+const failOnExistsQuery = "?fail-on-exists=true"
+
+// apply posts the cluster to the collection; the backend creates it or updates the existing
+// one of the same name. With failOnExists it only creates: the backend refuses (409) a name that is taken.
+func (c *mksClusterClient) apply(ctx context.Context, obj *apiv1.MKSCluster, failOnExists bool) (*apiv1.MKSCluster, error) {
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "mks cluster is nil"}
 	}
 	obj.Metadata.Project = firstNonEmpty(obj.Metadata.Project, c.project)
-	wire := convert.ToPaaSMKSCluster(stripStatusMKSCluster(obj), c.project)
-	collection, _, _ := convert.MKSClusterPaths(c.scope())
-	var out convert.PaaSMKSCluster
-	if err := c.rest.Post(ctx, collection(), wire, &out); err != nil {
+	obj.Metadata.Workspace = firstNonEmpty(obj.Metadata.Workspace, c.workspace)
+	wire := convert.ToMKSCluster(obj, c.project, c.workspace)
+	collection, _ := c.paths()
+	var out convert.MKSClusterObject
+	path := collection()
+	if failOnExists {
+		path += failOnExistsQuery
+	}
+	if err := c.rest.Post(ctx, path, wire, &out); err != nil {
 		return nil, err
 	}
 	if out.Metadata.Name != "" {
-		return convert.FromPaaSMKSCluster(&out), nil
+		return convert.FromMKSCluster(&out, c.project, c.workspace), nil
 	}
 	return c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{})
 }
 
+// Create stores a new cluster. The backend upserts by name unless asked not to, so Create sends
+// fail-on-exists (an atomic 409 for a taken name) and also checks the name first, because a controller
+// that does not know the parameter would update the existing cluster instead.
+func (c *mksClusterClient) Create(ctx context.Context, obj *apiv1.MKSCluster, _ gpupaas.CreateOptions) (*apiv1.MKSCluster, error) {
+	if obj == nil {
+		return nil, &gpupaas.APIError{StatusCode: 400, Message: "mks cluster is nil"}
+	}
+	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
+		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("mks cluster %q already exists", obj.Metadata.Name)}
+	} else if !gpupaas.IsNotFound(err) {
+		return nil, err
+	}
+	return c.apply(ctx, obj, true)
+}
+
+// Update applies a changed spec to an existing cluster.
+func (c *mksClusterClient) Update(ctx context.Context, obj *apiv1.MKSCluster, _ gpupaas.UpdateOptions) (*apiv1.MKSCluster, error) {
+	return c.apply(ctx, obj, false)
+}
+
 func (c *mksClusterClient) Get(ctx context.Context, name string, _ gpupaas.GetOptions) (*apiv1.MKSCluster, error) {
-	_, item, _ := convert.MKSClusterPaths(c.scope())
-	var out convert.PaaSMKSCluster
+	_, item := c.paths()
+	var out convert.MKSClusterObject
 	if err := c.rest.Get(ctx, item(name), &out); err != nil {
 		return nil, err
 	}
-	return convert.FromPaaSMKSCluster(&out), nil
+	return convert.FromMKSCluster(&out, c.project, c.workspace), nil
 }
 
 func (c *mksClusterClient) List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSClusterList, error) {
-	collection, _, _ := convert.MKSClusterPaths(c.scope())
+	collection, _ := c.paths()
 	path := collection()
 	if q := listQuery(opts); q != "" {
 		path += "?" + q
 	}
-	var out convert.PaaSMKSClusterList
+	var out convert.MKSClusterObjectList
 	if err := c.rest.Get(ctx, path, &out); err != nil {
 		return nil, err
 	}
-	return convert.FromPaaSMKSClusterList(&out), nil
+	return convert.FromMKSClusterList(&out, c.project, c.workspace), nil
 }
 
-func (c *mksClusterClient) Delete(ctx context.Context, name string, _ gpupaas.DeleteOptions) error {
-	_, item, _ := convert.MKSClusterPaths(c.scope())
-	return c.rest.Delete(ctx, item(name))
-}
-
-func (c *mksClusterClient) Upgrade(ctx context.Context, name string, req *apiv1.MKSUpgradeRequest, _ gpupaas.ActionOptions) (*apiv1.MKSCluster, error) {
-	if req == nil {
-		return nil, &gpupaas.APIError{StatusCode: 400, Message: "upgrade request is nil"}
+func (c *mksClusterClient) Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error {
+	_, item := c.paths()
+	path := item(name)
+	if opts.Force {
+		path += "?force=true"
 	}
-	payload := convert.ToPaaSMKSUpgradeRequest(req)
-	return c.postClusterAction(ctx, name, "upgrade", payload)
-}
-
-func (c *mksClusterClient) ScaleNodeGroup(ctx context.Context, name string, req *apiv1.MKSScaleNodeGroupRequest, _ gpupaas.ActionOptions) (*apiv1.MKSCluster, error) {
-	if req == nil || req.NodeGroupName == "" {
-		return nil, &gpupaas.APIError{StatusCode: 400, Message: "nodeGroupName is required for ScaleNodeGroup"}
+	err := c.rest.Delete(ctx, path)
+	if err != nil && opts.IgnoreNotFound && gpupaas.IsNotFound(err) {
+		return nil
 	}
-	payload := convert.ToPaaSMKSScaleNodeGroupRequest(req)
-	return c.postClusterAction(ctx, name, "scaleNodeGroup", payload)
-}
-
-func (c *mksClusterClient) AddNodeGroup(ctx context.Context, name string, nodeGroup *apiv1.MKSNodeGroup, _ gpupaas.ActionOptions) (*apiv1.MKSCluster, error) {
-	if nodeGroup == nil {
-		return nil, &gpupaas.APIError{StatusCode: 400, Message: "nodeGroup is required for AddNodeGroup"}
-	}
-	payload := convert.ToPaaSMKSAddNodeGroupRequest(nodeGroup)
-	return c.postClusterAction(ctx, name, "addNodeGroup", payload)
-}
-
-func (c *mksClusterClient) RemoveNodeGroup(ctx context.Context, name, nodeGroupName string, _ gpupaas.ActionOptions) (*apiv1.MKSCluster, error) {
-	if nodeGroupName == "" {
-		return nil, &gpupaas.APIError{StatusCode: 400, Message: "nodeGroupName is required for RemoveNodeGroup"}
-	}
-	payload := &convert.PaaSMKSRemoveNodeGroupRequest{NodeGroupName: nodeGroupName}
-	return c.postClusterAction(ctx, name, "removeNodeGroup", payload)
-}
-
-func (c *mksClusterClient) postClusterAction(ctx context.Context, name, action string, payload interface{}) (*apiv1.MKSCluster, error) {
-	_, _, subroute := convert.MKSClusterPaths(c.scope())
-	var out convert.PaaSMKSCluster
-	if err := c.rest.Post(ctx, subroute(name, action), payload, &out); err != nil {
-		return nil, err
-	}
-	if out.Metadata.Name != "" {
-		return convert.FromPaaSMKSCluster(&out), nil
-	}
-	return c.Get(ctx, name, gpupaas.GetOptions{})
-}
-
-func (c *mksClusterClient) Nodes(clusterName string) MKSNodeInterface {
-	return newMKSNodeClient(c.rest, c.project, clusterName)
-}
-
-func (c *mksClusterClient) WorkerNodeGroups(clusterName string) MKSWorkerNodeGroupInterface {
-	return newMKSWorkerNodeGroupClient(c.rest, c.project, clusterName)
-}
-
-func (c *mksClusterClient) AuditEvents(clusterName string) MKSAuditEventInterface {
-	return newMKSAuditEventClient(c.rest, c.project, clusterName)
-}
-
-func stripStatusMKSCluster(obj *apiv1.MKSCluster) *apiv1.MKSCluster {
-	cp := *obj
-	cp.Status = apiv1.MKSClusterStatus{}
-	return &cp
+	return err
 }
 
 // ---------------------------------------------------------------------------
-// MKSNode client (cluster-scoped)
+// ClusterProfile (read-only)
+// ---------------------------------------------------------------------------
+
+type mksClusterProfileClient struct {
+	rest    *rest.Client
+	project string
+}
+
+func (c *mksClusterProfileClient) Get(ctx context.Context, name string, _ gpupaas.GetOptions) (*apiv1.MKSClusterProfile, error) {
+	_, item := convert.MKSClusterProfilePaths(c.project)
+	var out convert.MKSClusterProfileObject
+	if err := c.rest.Get(ctx, item(name), &out); err != nil {
+		return nil, err
+	}
+	return convert.FromMKSClusterProfile(&out, c.project), nil
+}
+
+func (c *mksClusterProfileClient) List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSClusterProfileList, error) {
+	collection, _ := convert.MKSClusterProfilePaths(c.project)
+	path := collection()
+	if q := listQuery(opts); q != "" {
+		path += "?" + q
+	}
+	var out convert.MKSClusterProfileObjectList
+	if err := c.rest.Get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return convert.FromMKSClusterProfileList(&out, c.project), nil
+}
+
+// ---------------------------------------------------------------------------
+// ClusterNode (read-only)
 // ---------------------------------------------------------------------------
 
 type mksNodeClient struct {
 	rest    *rest.Client
 	project string
-	cluster string
 }
 
-func newMKSNodeClient(restClient *rest.Client, project, cluster string) *mksNodeClient {
-	return &mksNodeClient{rest: restClient, project: project, cluster: cluster}
+func (c *mksNodeClient) ListForCluster(ctx context.Context, cluster string) (*apiv1.MKSNodeList, error) {
+	if cluster == "" {
+		return nil, &gpupaas.APIError{StatusCode: 400, Message: "cluster name is required to list nodes"}
+	}
+	base := fmt.Sprintf(convert.MKSClusterNodesPath, url.PathEscape(c.project))
+	// A large cluster has more nodes than one response holds, and the server may cap the page size
+	// below ours, so pages are read by offset until the reported total is reached.
+	var all convert.MKSNodeObjectList
+	for page := 0; page < maxNodePages; page++ {
+		q := url.Values{"cluster_name": {cluster}, "limit": {strconv.Itoa(nodePageSize)}, "offset": {strconv.Itoa(len(all.Items))}}
+		var out convert.MKSNodeObjectList
+		if err := c.rest.Get(ctx, base+"?"+q.Encode(), &out); err != nil {
+			return nil, err
+		}
+		if page == 0 {
+			all.APIVersion, all.Kind, all.Metadata = out.APIVersion, out.Kind, out.Metadata
+		}
+		all.Items = append(all.Items, out.Items...)
+		got, total := int64(len(all.Items)), out.Metadata.Count
+		if len(out.Items) == 0 || (total > 0 && got >= total) || (total == 0 && len(out.Items) < nodePageSize) {
+			break
+		}
+	}
+	return convert.FromMKSNodeList(&all, c.project), nil
 }
 
-func (c *mksNodeClient) scope() convert.PaaSMKSClusterScope {
-	return convert.PaaSMKSClusterScope{Project: c.project, Cluster: c.cluster}
-}
+const (
+	// nodePageSize is how many nodes one request asks for.
+	nodePageSize = 100
+	// maxNodePages bounds the pages read for one cluster (50,000 nodes).
+	maxNodePages = 500
+)
 
-func (c *mksNodeClient) Get(ctx context.Context, name string, _ gpupaas.GetOptions) (*apiv1.MKSNode, error) {
-	_, item, _ := convert.MKSNodePaths(c.scope())
-	var out convert.PaaSMKSNode
-	if err := c.rest.Get(ctx, item(name), &out); err != nil {
+// kubeconfigPath is the sentry service's route for user kubeconfigs; it is not part of
+// paas.k8smgmt.io/v3. The console asks it for the cluster by name.
+const kubeconfigPath = "/v2/sentry/kubeconfig/user"
+
+// Kubeconfig downloads the user kubeconfig of the named cluster, as the console's "Download
+// Kubeconfig" does. The platform answers 500 while the cluster is not running and registered.
+func (c *mksClusterClient) Kubeconfig(ctx context.Context, name string) ([]byte, error) {
+	// A cluster that does not exist is a plain not found, not sentry's generic 500.
+	if _, err := c.Get(ctx, name, gpupaas.GetOptions{}); err != nil {
 		return nil, err
 	}
-	return convert.FromPaaSMKSNode(&out), nil
-}
-
-func (c *mksNodeClient) List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSNodeList, error) {
-	collection, _, _ := convert.MKSNodePaths(c.scope())
-	path := collection()
-	if q := listQuery(opts); q != "" {
-		path += "?" + q
-	}
-	var out convert.PaaSMKSNodeList
-	if err := c.rest.Get(ctx, path, &out); err != nil {
+	query := url.Values{"opts.selector": {"rafay.dev/clusterName=" + name}}
+	raw, err := c.rest.GetRaw(ctx, kubeconfigPath+"?"+query.Encode())
+	if err != nil {
 		return nil, err
 	}
-	return convert.FromPaaSMKSNodeList(&out), nil
-}
-
-func (c *mksNodeClient) Delete(ctx context.Context, name string, _ gpupaas.DeleteOptions) error {
-	_, item, _ := convert.MKSNodePaths(c.scope())
-	return c.rest.Delete(ctx, item(name))
-}
-
-func (c *mksNodeClient) Drain(ctx context.Context, name string, req *apiv1.MKSDrainRequest, _ gpupaas.ActionOptions) (*apiv1.MKSNode, error) {
-	payload := convert.ToPaaSMKSDrainRequest(req)
-	return c.postNodeAction(ctx, name, "drain", payload)
-}
-
-func (c *mksNodeClient) Cordon(ctx context.Context, name string, _ gpupaas.ActionOptions) (*apiv1.MKSNode, error) {
-	return c.postNodeAction(ctx, name, "cordon", nil)
-}
-
-func (c *mksNodeClient) Uncordon(ctx context.Context, name string, _ gpupaas.ActionOptions) (*apiv1.MKSNode, error) {
-	return c.postNodeAction(ctx, name, "uncordon", nil)
-}
-
-func (c *mksNodeClient) postNodeAction(ctx context.Context, name, action string, payload interface{}) (*apiv1.MKSNode, error) {
-	_, _, subroute := convert.MKSNodePaths(c.scope())
-	var out convert.PaaSMKSNode
-	if err := c.rest.Post(ctx, subroute(name, action), payload, &out); err != nil {
+	raw = decodeKubeconfig(raw)
+	if err := checkKubeconfig(raw, name); err != nil {
 		return nil, err
 	}
-	if out.Metadata.Name != "" {
-		return convert.FromPaaSMKSNode(&out), nil
+	return raw, nil
+}
+
+// checkKubeconfig accepts a kubeconfig that holds exactly one cluster. sentry looks the cluster up
+// by name only, so a name that exists in several projects would otherwise hand back another
+// cluster's credentials, or a merged file with several clusters.
+func checkKubeconfig(raw []byte, name string) error {
+	var cfg struct {
+		Clusters []struct {
+			Name string `yaml:"name"`
+		} `yaml:"clusters"`
 	}
-	return c.Get(ctx, name, gpupaas.GetOptions{})
-}
-
-// ---------------------------------------------------------------------------
-// MKSWorkerNodeGroup client (cluster-scoped)
-// ---------------------------------------------------------------------------
-
-type mksWorkerNodeGroupClient struct {
-	rest    *rest.Client
-	project string
-	cluster string
-}
-
-func newMKSWorkerNodeGroupClient(restClient *rest.Client, project, cluster string) *mksWorkerNodeGroupClient {
-	return &mksWorkerNodeGroupClient{rest: restClient, project: project, cluster: cluster}
-}
-
-func (c *mksWorkerNodeGroupClient) scope() convert.PaaSMKSClusterScope {
-	return convert.PaaSMKSClusterScope{Project: c.project, Cluster: c.cluster}
-}
-
-func (c *mksWorkerNodeGroupClient) Create(ctx context.Context, obj *apiv1.MKSWorkerNodeGroup, _ gpupaas.CreateOptions) (*apiv1.MKSWorkerNodeGroup, error) {
-	if obj == nil {
-		return nil, &gpupaas.APIError{StatusCode: 400, Message: "worker node group is nil"}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil || len(cfg.Clusters) == 0 {
+		return &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("the platform returned no kubeconfig for cluster %q", name)}
 	}
-	obj.Metadata.Project = firstNonEmpty(obj.Metadata.Project, c.project)
-	if obj.Spec.ClusterName == "" {
-		obj.Spec.ClusterName = c.cluster
+	if len(cfg.Clusters) > 1 {
+		return &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("the platform returned %d clusters for the name %q: the name is not unique, so the kubeconfig is refused rather than risk another cluster's credentials", len(cfg.Clusters), name)}
 	}
-	wire := convert.ToPaaSMKSWorkerNodeGroup(obj, c.project)
-	collection, _ := convert.MKSWorkerNodeGroupPaths(c.scope())
-	var out convert.PaaSMKSWorkerNodeGroup
-	if err := c.rest.Post(ctx, collection(), wire, &out); err != nil {
+	return nil
+}
+
+// poolPath is the route of an operation on a worker pool: nodepools/{pool}/{verb}?cluster_name=.
+func poolPath(project, cluster, pool, verb string) string {
+	return fmt.Sprintf(convert.MKSNodePoolPath, url.PathEscape(project), url.PathEscape(pool), verb) + "?" + url.Values{"cluster_name": {cluster}}.Encode()
+}
+
+func (c *mksNodeClient) poolOp(ctx context.Context, cluster, pool, verb string, body map[string]any) (*MKSPoolOperationResult, error) {
+	if cluster == "" || pool == "" {
+		return nil, &gpupaas.APIError{StatusCode: 400, Message: "cluster and pool names are required"}
+	}
+	body["clusterName"] = cluster
+	var out MKSPoolOperationResult
+	if err := c.rest.Post(ctx, poolPath(c.project, cluster, pool, verb), body, &out); err != nil {
 		return nil, err
 	}
-	if out.Metadata.Name != "" {
-		return convert.FromPaaSMKSWorkerNodeGroup(&out), nil
+	return &out, nil
+}
+
+func (c *mksNodeClient) CordonPool(ctx context.Context, cluster, pool string) (*MKSPoolOperationResult, error) {
+	return c.poolOp(ctx, cluster, pool, "cordon", map[string]any{})
+}
+
+func (c *mksNodeClient) UncordonPool(ctx context.Context, cluster, pool string) (*MKSPoolOperationResult, error) {
+	return c.poolOp(ctx, cluster, pool, "uncordon", map[string]any{})
+}
+
+func (c *mksNodeClient) DrainPool(ctx context.Context, cluster, pool string, opts MKSDrainOptions) (*MKSPoolOperationResult, error) {
+	body := map[string]any{}
+	if opts.Force != nil {
+		body["force"] = *opts.Force
 	}
-	return c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{})
-}
-
-func (c *mksWorkerNodeGroupClient) Get(ctx context.Context, name string, _ gpupaas.GetOptions) (*apiv1.MKSWorkerNodeGroup, error) {
-	_, item := convert.MKSWorkerNodeGroupPaths(c.scope())
-	var out convert.PaaSMKSWorkerNodeGroup
-	if err := c.rest.Get(ctx, item(name), &out); err != nil {
-		return nil, err
+	if opts.IgnoreDaemonsets != nil {
+		body["ignoreDaemonsets"] = *opts.IgnoreDaemonsets
 	}
-	return convert.FromPaaSMKSWorkerNodeGroup(&out), nil
-}
-
-func (c *mksWorkerNodeGroupClient) List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSWorkerNodeGroupList, error) {
-	collection, _ := convert.MKSWorkerNodeGroupPaths(c.scope())
-	path := collection()
-	if q := listQuery(opts); q != "" {
-		path += "?" + q
+	if opts.GracePeriodSeconds != nil {
+		body["gracePeriodSeconds"] = *opts.GracePeriodSeconds
 	}
-	var out convert.PaaSMKSWorkerNodeGroupList
-	if err := c.rest.Get(ctx, path, &out); err != nil {
-		return nil, err
+	if opts.DeleteEmptyDirData != nil {
+		body["deleteEmptyDirData"] = *opts.DeleteEmptyDirData
 	}
-	return convert.FromPaaSMKSWorkerNodeGroupList(&out), nil
+	return c.poolOp(ctx, cluster, pool, "drain", body)
 }
 
-func (c *mksWorkerNodeGroupClient) Delete(ctx context.Context, name string, _ gpupaas.DeleteOptions) error {
-	_, item := convert.MKSWorkerNodeGroupPaths(c.scope())
-	return c.rest.Delete(ctx, item(name))
-}
-
-// ---------------------------------------------------------------------------
-// MKSAuditEvent client (cluster-scoped, read-only)
-// ---------------------------------------------------------------------------
-
-type mksAuditEventClient struct {
-	rest    *rest.Client
-	project string
-	cluster string
-}
-
-func newMKSAuditEventClient(restClient *rest.Client, project, cluster string) *mksAuditEventClient {
-	return &mksAuditEventClient{rest: restClient, project: project, cluster: cluster}
-}
-
-func (c *mksAuditEventClient) scope() convert.PaaSMKSClusterScope {
-	return convert.PaaSMKSClusterScope{Project: c.project, Cluster: c.cluster}
-}
-
-func (c *mksAuditEventClient) List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSAuditEventList, error) {
-	collection, _ := convert.MKSAuditEventPaths(c.scope())
-	path := collection()
-	if q := listQuery(opts); q != "" {
-		path += "?" + q
+// decodeKubeconfig unwraps the answer of the sentry service. Asked for JSON, which is what the SDK's
+// client always does, it wraps the file as {"content_type": ..., "data": "<base64>"}; for any other
+// Accept it returns the YAML itself, which is passed through unchanged.
+func decodeKubeconfig(raw []byte) []byte {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return raw
 	}
-	var out convert.PaaSMKSAuditEventList
-	if err := c.rest.Get(ctx, path, &out); err != nil {
-		return nil, err
+	var envelope struct {
+		ContentType string `json:"content_type"`
+		Data        string `json:"data"`
 	}
-	return convert.FromPaaSMKSAuditEventList(&out), nil
-}
-
-func (c *mksAuditEventClient) Get(ctx context.Context, id string, _ gpupaas.GetOptions) (*apiv1.MKSAuditEvent, error) {
-	_, item := convert.MKSAuditEventPaths(c.scope())
-	var out convert.PaaSMKSAuditEvent
-	if err := c.rest.Get(ctx, item(id), &out); err != nil {
-		return nil, err
+	if err := json.Unmarshal(trimmed, &envelope); err != nil || envelope.Data == "" {
+		return raw
 	}
-	return convert.FromPaaSMKSAuditEvent(&out), nil
+	if decoded, err := base64.StdEncoding.DecodeString(envelope.Data); err == nil {
+		return decoded
+	}
+	return []byte(envelope.Data)
 }

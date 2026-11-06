@@ -1,0 +1,28 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "BareMetal",
+  "metadata": {
+    "name": "demo-bm-2",
+    "project": "system-catalog",
+    "workspace": "notebook-ws"
+  },
+  "spec": {
+    "type": "demo-ironic",
+    "assignPublicIp": true,
+    "sharing": {
+      "shareMode": "None"
+    },
+    "datacenter": "ironic-scale-dc-20260930161921",
+    "userPassword": "<redacted>",
+    "image": "ubuntu24",
+    "gpuName": "custom",
+    "computeInstanceId": "01a11660-4445-753c-bb5e-b2ed80d8d6f4",
+    "provisionerType": "non_bcm"
+  },
+  "status": {
+    "status": "failed",
+    "reason": "Couldn't provision instance test102 because there's no capacity available right now. Please contact your administrator.",
+    "action": "deploy",
+    "reasonDetail": "No Capacity for allocation. Please Contact Admin"
+  }
+}

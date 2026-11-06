@@ -3,6 +3,7 @@ package gpupaas
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // APIError represents a non-success HTTP response from the API.
@@ -21,11 +22,19 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("api error %d", e.StatusCode)
 }
 
-// IsNotFound reports whether err is a 404 API error.
+// IsNotFound reports whether err means the requested object does not exist.
+//
+// Most endpoints answer 404. Some endpoints on the paas.envmgmt.io API (for
+// example compute instances) wrap the store error and answer 502 with a body
+// such as {"internal":"ent: workspace_compute_instance not found",
+// "external":"Upstream misbehaving"}; those are treated as not found too.
 func IsNotFound(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == 404
+		if apiErr.StatusCode == 404 {
+			return true
+		}
+		return apiErr.StatusCode == 502 && strings.Contains(strings.ToLower(apiErr.Body), "not found")
 	}
 	return false
 }
