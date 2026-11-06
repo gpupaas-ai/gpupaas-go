@@ -3,47 +3,10 @@ package v1alpha1
 import "github.com/gpupaas-ai/gpupaas-go/runtime"
 
 // AddToScheme registers gpupaas v1alpha1 types.
+//
+// Only MKSCluster is registered: it is the kind the apply/delete engine (client.Client, apply
+// package) handles. VMInstance and BareMetal are used through the typed clientset.
 func AddToScheme(scheme *runtime.Scheme) {
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindProject},
-		&Project{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "projects"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindWorkspace},
-		&Workspace{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "workspaces"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindWorkspaceCollaborator},
-		&WorkspaceCollaborator{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "workspacecollaborators"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindVirtualMachine},
-		&VirtualMachine{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "virtualmachines"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindStorage},
-		&Storage{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "storages"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindSecurityGroup},
-		&SecurityGroup{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "securitygroups"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindSshKey},
-		&SshKey{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "sshkeys"},
-	)
-	scheme.AddKnownTypeWithName(
-		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindBaremetalMachine},
-		&BaremetalMachine{},
-		runtime.GroupVersionResource{Group: Group, Version: Version, Resource: "baremetalmachines"},
-	)
 	scheme.AddKnownTypeWithName(
 		runtime.GroupVersionKind{Group: Group, Version: Version, Kind: KindMKSCluster},
 		&MKSCluster{},

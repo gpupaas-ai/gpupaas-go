@@ -1,0 +1,30 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "VmProfile",
+  "metadata": {"name": "vm-test", "project": "system-catalog"},
+  "spec": {
+    "gpu_vendor": "",
+    "gpu_model": "",
+    "gpu_name": "",
+    "image": ["ubuntu-24-04-system", "ubuntu-22-04-system"],
+    "gpus_enabled": false,
+    "additional_block_enabled": false,
+    "shared_filesystem_enabled": false,
+    "cpu_preset": [{"name": "Small", "cpu": "3", "memory": "3"}],
+    "gpu_preset": [],
+    "boot_disk": {"min_size": "15", "max_size": "2000", "increment": "10", "unit": "gb"},
+    "block_volume": null,
+    "template_name": "",
+    "template_version": "v3.1.41",
+    "inventory_config": [],
+    "sharing": {"shareMode": "None", "workspaces": [], "projects": []},
+    "public_ip": "Optional",
+    "billing_integration_id": "",
+    "image_default": "ubuntu-24-04-system",
+    "inline_shared_filesystem_creation": "Allow",
+    "ephemeral_storage_enabled": false,
+    "datacenter": ["vmaas-functional-dc"],
+    "instance_type": "ONDEMAND"
+  },
+  "status": {"status": "success", "reason": "", "globalSettings": {"agents": ["vmaas-agent"]}}
+}

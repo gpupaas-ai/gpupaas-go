@@ -1,19 +1,20 @@
-// Create (apply) a virtual machine.
+// Create a first-class virtual machine from a VM profile (SKU).
 //
-// Project-scoped create:
+// Create returns as soon as the backend accepts the request; the platform provisions the VM
+// asynchronously. Pass -wait to poll until it is running (or has failed).
 //
-//	go run ./examples/create-vm -memory -project demo -name example-vm
-//
-// Workspace-scoped create:
-//
-//	go run ./examples/create-vm -memory -project demo -workspace dev -name example-vm
+//	export GPUPAAS_API_KEY=your-api-key
+//	go run ./examples/create-vm -project demo -name example-vm -sku vm-sku -cpu 2 -memory 4 -ssh-key my-key
+//	go run ./examples/create-vm -project demo -workspace dev -name example-vm -wait
 package main
 
 import (
 	"context"
 	"fmt"
+	"log"
 
 	gpupaas "github.com/gpupaas-ai/gpupaas-go"
+	typed "github.com/gpupaas-ai/gpupaas-go/clientset/typed/v1alpha1"
 	"github.com/gpupaas-ai/gpupaas-go/examples/vmcommon"
 )
 
@@ -21,23 +22,23 @@ func main() {
 	cfg := vmcommon.ParseFlags()
 	ctx := context.Background()
 
-	vms, memClient, err := vmcommon.NewClients(cfg)
+	vms, err := vmcommon.NewClient(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	fmt.Printf("=== create virtual machine %q (%s) ===\n", cfg.Name, vmcommon.ScopeLabel(cfg.Workspace))
-	vm := vmcommon.SampleVM(cfg.Project, cfg.Workspace, cfg.Name)
-
-	if memClient != nil {
-		created := vmcommon.ApplyMemory(ctx, memClient, vm)
-		vmcommon.PrintYAML("virtualmachine", created)
-		return
-	}
-
-	created, err := vms.Create(ctx, vm, gpupaas.CreateOptions{})
+	created, err := vms.Create(ctx, vmcommon.SampleVM(cfg), gpupaas.CreateOptions{})
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	vmcommon.PrintYAML("virtualmachine", created)
+	vmcommon.Print("virtualmachine", created)
+
+	if cfg.Wait {
+		ready, err := typed.WaitForVMInstance(ctx, vms, cfg.Name, typed.VMInstanceWaitOptions{Done: typed.VMInstanceRunning})
+		if err != nil {
+			log.Fatal(err)
+		}
+		vmcommon.Print("virtualmachine (running)", ready)
+	}
 }

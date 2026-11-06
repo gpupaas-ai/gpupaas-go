@@ -13,9 +13,9 @@ func TestSerializerDecodeJSON(t *testing.T) {
 
 	data := []byte(`{
 		"apiVersion": "gpupaas.ai/v1alpha1",
-		"kind": "Workspace",
+		"kind": "MKSCluster",
 		"metadata": {"name": "dev", "project": "demo"},
-		"spec": {"description": "test"}
+		"spec": {"kubernetesVersion": "1.36"}
 	}`)
 
 	obj, err := ser.Decode(data)
@@ -32,16 +32,17 @@ func TestSerializerDecodeMultiDocYAML(t *testing.T) {
 	ser := runtime.NewSerializer(scheme)
 
 	data := []byte(`apiVersion: gpupaas.ai/v1alpha1
-kind: Project
+kind: MKSCluster
 metadata:
-  name: demo
+  name: one
+  project: demo
 spec:
-  displayName: Demo
+  kubernetesVersion: "1.36"
 ---
 apiVersion: gpupaas.ai/v1alpha1
-kind: Workspace
+kind: MKSCluster
 metadata:
-  name: dev
+  name: two
   project: demo
 `)
 

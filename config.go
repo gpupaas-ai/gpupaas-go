@@ -18,6 +18,12 @@ type Config struct {
 	HTTPClient *http.Client
 	// Verbose logs HTTP requests and responses (remote backend only).
 	Verbose bool
+	// OrganizationID is sent as the X-Organization-ID header when set. It is the organization's id or
+	// its exact, case-sensitive name. A partner-level API key (one that is not bound to an
+	// organization) needs it to act inside a tenant organization; without it the platform answers 502
+	// "id or partnerID/orgID/name not set". An organization-level key does not need it and the platform
+	// ignores the header for such a key, even when it names another organization or none that exists.
+	OrganizationID string
 
 	// Token is deprecated; use APIKey. When APIKey is empty, Token is used.
 	Token string
@@ -35,7 +41,7 @@ func NewConfig(endpoint, apiKey string) Config {
 }
 
 // ConfigFromEnv reads GPUPAAS_ENDPOINT, GPUPAAS_API_KEY, GPUPAAS_API_SECRET,
-// GPUPAAS_VERBOSE, and GPUPAAS_TOKEN (deprecated alias for API key).
+// GPUPAAS_VERBOSE, GPUPAAS_ORGANIZATION_ID, and GPUPAAS_TOKEN (deprecated alias for API key).
 func ConfigFromEnv() Config {
 	cfg := Config{
 		Endpoint:  os.Getenv("GPUPAAS_ENDPOINT"),
@@ -43,6 +49,8 @@ func ConfigFromEnv() Config {
 		APISecret: os.Getenv("GPUPAAS_API_SECRET"),
 		Token:     os.Getenv("GPUPAAS_TOKEN"),
 		Verbose:   envBool("GPUPAAS_VERBOSE"),
+
+		OrganizationID: strings.TrimSpace(os.Getenv("GPUPAAS_ORGANIZATION_ID")),
 	}
 	cfg.normalize()
 	return cfg

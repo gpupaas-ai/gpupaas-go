@@ -14,8 +14,10 @@ type UpdateOptions struct {
 type DeleteOptions struct {
 	DryRun         bool
 	IgnoreNotFound bool
-	// SSOUser sets ssoUsers query param when removing workspace collaborators.
-	SSOUser *bool
+	// Force removes the record even when its infrastructure cannot be torn down. MKS clusters
+	// support it (DELETE ...?force=true): use it only for a cluster that failed before anything
+	// was provisioned, or when the infrastructure is already gone.
+	Force bool
 }
 
 // GetOptions configures get operations.
@@ -26,12 +28,7 @@ type ListOptions struct {
 	Limit         string
 	Continue      string
 	LabelSelector string
-	// SSOUsers filters workspace collaborators to SSO users when true (ssoUsers query param).
-	SSOUsers *bool
-}
-
-// ActionOptions configures virtual machine action requests (start, stop, etc.).
-type ActionOptions struct {
-	Variables []map[string]string
-	Envs      []map[string]string
+	// ServiceType narrows a storage list to one family: "high-speed-storage" or "object-storage". The
+	// controller accepts the filter although its API document does not list it. Other kinds ignore it.
+	ServiceType string
 }

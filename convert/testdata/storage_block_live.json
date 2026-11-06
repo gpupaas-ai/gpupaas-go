@@ -1,0 +1,20 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "Storage",
+  "metadata": {
+    "name": "ddn-hss",
+    "project": "system-catalog",
+    "workspace": "lab-ws",
+    "workspaceID": "019ef5e7-0000-7000-8000-000000000002"
+  },
+  "spec": {
+    "type": "block-ddn",
+    "datacenter": "lab-dc"
+  },
+  "status": {
+    "status": "success",
+    "reason": "Storage Deployment Successful",
+    "action": "deploy",
+    "output": {"name": "exascale", "volume_size": 2000000000}
+  }
+}

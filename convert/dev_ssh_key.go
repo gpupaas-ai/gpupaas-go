@@ -12,7 +12,7 @@ const (
 	DevSshKeyListKind = "SshKeyList"
 )
 
-// SshKeyPaths returns collection and item path builders for the given scope.
+// SshKeyPaths returns the collection and item path builders for the given scope.
 func SshKeyPaths(scope DevScope) (collection func() string, item func(name string) string) {
 	if scope.Workspace != "" {
 		return func() string {
@@ -32,7 +32,6 @@ func SshKeyPaths(scope DevScope) (collection func() string, item func(name strin
 
 // DevSshKeySpec is the wire spec for an SSH key.
 type DevSshKeySpec struct {
-	SSHKey    DevResourceRef  `json:"ssh_key"`
 	Type      string          `json:"type,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	PublicKey string          `json:"public_key,omitempty"`
@@ -63,32 +62,23 @@ type DevSshKeyList struct {
 	Items      []DevSshKey      `json:"items"`
 }
 
-// ToDevSshKey converts SDK SSH key to wire format.
+// ToDevSshKey converts an SDK SSH key to the wire format.
 func ToDevSshKey(k *apiv1.SshKey, project, workspace string) *DevSshKey {
 	if k == nil {
 		return nil
 	}
-	return &DevSshKey{
+	out := &DevSshKey{
 		APIVersion: DevAPIVersion,
 		Kind:       DevSshKeyKind,
 		Metadata:   devMetadataToWire(k.Metadata, project, workspace),
-		Spec:       toDevSshKeySpec(k.Spec),
-		Status:     DevSshKeyStatus{},
-	}
-}
-
-func toDevSshKeySpec(s apiv1.SshKeySpec) DevSshKeySpec {
-	out := DevSshKeySpec{
-		SSHKey: DevResourceRef{
-			Name:          s.SSHKey.Name,
-			SystemCatalog: s.SSHKey.SystemCatalog,
+		Spec: DevSshKeySpec{
+			Type:      k.Spec.Type,
+			Name:      k.Spec.Name,
+			PublicKey: k.Spec.PublicKey,
 		},
-		Type:      s.Type,
-		Name:      s.Name,
-		PublicKey: s.PublicKey,
 	}
-	if s.Sharing != nil {
-		out.Sharing = toDevSharing(*s.Sharing)
+	if k.Spec.Sharing != nil {
+		out.Spec.Sharing = toDevSharing(*k.Spec.Sharing)
 	}
 	return out
 }
@@ -98,53 +88,37 @@ func FromDevSshKey(wire *DevSshKey, workspace string) *apiv1.SshKey {
 	if wire == nil {
 		return nil
 	}
-	return &apiv1.SshKey{
+	out := &apiv1.SshKey{
 		TypeMeta: apiv1.TypeMeta{
 			APIVersion: apiv1.APIVersion,
 			Kind:       apiv1.KindSshKey,
 		},
 		Metadata: devMetadataFromWire(wire.Metadata, workspace),
-		Spec:     fromDevSshKeySpec(wire.Spec),
-		Status:   fromDevSshKeyStatus(wire.Status),
-	}
-}
-
-func fromDevSshKeySpec(s DevSshKeySpec) apiv1.SshKeySpec {
-	out := apiv1.SshKeySpec{
-		SSHKey: apiv1.ResourceRef{
-			Name:          s.SSHKey.Name,
-			SystemCatalog: s.SSHKey.SystemCatalog,
+		Spec: apiv1.SshKeySpec{
+			Type:      wire.Spec.Type,
+			Name:      wire.Spec.Name,
+			PublicKey: wire.Spec.PublicKey,
 		},
-		Type:      s.Type,
-		Name:      s.Name,
-		PublicKey: s.PublicKey,
+		Status: apiv1.SshKeyStatus{
+			Status: wire.Status.Status,
+			Reason: wire.Status.Reason,
+			Action: wire.Status.Action,
+		},
 	}
-	if s.Sharing != nil {
-		out.Sharing = fromDevSharing(*s.Sharing)
+	if wire.Spec.Sharing != nil {
+		out.Spec.Sharing = fromDevSharing(*wire.Spec.Sharing)
 	}
 	return out
 }
 
-func fromDevSshKeyStatus(s DevSshKeyStatus) apiv1.SshKeyStatus {
-	return apiv1.SshKeyStatus{
-		Status: s.Status,
-		Reason: s.Reason,
-		Action: s.Action,
-	}
-}
-
-// FromDevSshKeyList converts a wire list to SDK SSH key list.
+// FromDevSshKeyList converts a wire list to an SDK SSH key list.
 func FromDevSshKeyList(wire *DevSshKeyList, workspace string) *apiv1.SshKeyList {
-	if wire == nil {
-		return &apiv1.SshKeyList{
-			TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: apiv1.KindSshKey + "List"},
-		}
-	}
 	out := &apiv1.SshKeyList{
-		TypeMeta: apiv1.TypeMeta{
-			APIVersion: apiv1.APIVersion,
-			Kind:       apiv1.KindSshKey + "List",
-		},
+		TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: DevSshKeyListKind},
+		Items:    make([]apiv1.SshKey, 0),
+	}
+	if wire == nil {
+		return out
 	}
 	out.Metadata.Continue = devListContinue(wire.Metadata, len(wire.Items))
 	for i := range wire.Items {

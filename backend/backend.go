@@ -10,8 +10,6 @@ import (
 type ListOptions struct {
 	Project   string
 	Workspace string
-	// SSOUsers filters workspace collaborators when listing (ssoUsers query param).
-	SSOUsers *bool
 }
 
 // Backend persists and retrieves API objects.

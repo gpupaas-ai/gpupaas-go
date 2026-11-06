@@ -1,9 +1,10 @@
 // Reboot a virtual machine (POST .../action/reboot).
 //
-// Requires live API — actions are not supported on the in-memory backend.
+// Action returns once the backend accepts the verb; pass -wait to poll until the VM has settled.
 //
+//	export GPUPAAS_API_KEY=your-api-key
 //	go run ./examples/vm-reboot -project demo -name example-vm
-//	go run ./examples/vm-reboot -project demo -workspace dev -name example-vm
+//	go run ./examples/vm-reboot -project demo -workspace dev -name example-vm -wait
 package main
 
 import (
@@ -11,28 +12,29 @@ import (
 	"fmt"
 	"log"
 
-	gpupaas "github.com/gpupaas-ai/gpupaas-go"
+	typed "github.com/gpupaas-ai/gpupaas-go/clientset/typed/v1alpha1"
 	"github.com/gpupaas-ai/gpupaas-go/examples/vmcommon"
 )
 
 func main() {
 	cfg := vmcommon.ParseFlags()
-	if cfg.UseMemory {
-		log.Fatal("vm-reboot requires live API; omit -memory")
-	}
 	ctx := context.Background()
 
-	vms, _, err := vmcommon.NewClients(cfg)
+	vms, err := vmcommon.NewClient(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	fmt.Printf("=== reboot virtual machine %q (%s) ===\n", cfg.Name, vmcommon.ScopeLabel(cfg.Workspace))
-
-	// Reboot is the convenience for Action(ctx, name, "reboot", opts).
-	result, err := vms.Reboot(ctx, cfg.Name, gpupaas.ActionOptions{})
+	result, err := vms.Action(ctx, cfg.Name, "reboot", nil)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	vmcommon.PrintYAML("virtualmachine", result)
+	if cfg.Wait {
+		result, err = typed.WaitForVMInstance(ctx, vms, cfg.Name, typed.VMInstanceWaitOptions{Done: typed.VMInstanceActionDone("reboot"), Stable: 2})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	vmcommon.Print("virtualmachine", result)
 }
