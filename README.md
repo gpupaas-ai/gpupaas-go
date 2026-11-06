@@ -2,11 +2,17 @@
 
 Go SDK for the [gpupaas.ai](https://gpupaas.ai) API. Shared client library for **terraform-provider-gpupaas**, and custom automation.
 
-The API uses a Kubernetes-inspired resource shape (`apiVersion`, `kind`, `metadata`, `spec`, `status`) with gpupaas-native scoping:
+The SDK covers three resource families:
 
-- **Project** — top-level container (`metadata.name`)
-- **Workspace** — belongs to a project (`metadata.project` + `metadata.name`)
-- **VirtualMachine** — dev VM instance at **project** or **workspace** scope (`metadata.project`, optional `metadata.workspace`)
+| Family | Kinds | Scope | Backend API |
+|--------|-------|-------|-------------|
+| **Virtual machines** | `VMInstance` (wire kind `VirtualMachine`), `VMProfile` (read-only SKU) | project or workspace | `dev.envmgmt.io/v1` |
+| **Bare metal** | `BareMetal`, `BmProfile` (read-only SKU) | project or workspace | `dev.envmgmt.io/v1` |
+| **MKS clusters** (managed Kubernetes) | `MKSCluster`, `MKSClusterProfile` and `MKSNode`, kubeconfig, day-2 routes (pools, upgrade, metadata, redeploy), status, audit events, node and pool operations, matchmaker | project or workspace (profiles and nodes: project) | `paas.k8smgmt.io/v3` |
+
+Two read-only helpers support them: `SshKey` (look a key up by name) and `ComputeInstance` (the instance that sits behind every VM, bare-metal machine and cluster node and explains a failure; see [ComputeInstance](#computeinstance-read-only)).
+
+The API uses a Kubernetes-inspired resource shape (`apiVersion`, `kind`, `metadata`, `spec`, `status`) with gpupaas-native scoping: `metadata.project` plus an optional `metadata.workspace`. Projects and workspaces themselves are not managed by this SDK; they must already exist, and the workspace is named by the caller (`V1alpha1().Workspaces(project)` is only the accessor for the resources inside it).
 
 ## Install
 
@@ -14,19 +20,50 @@ The API uses a Kubernetes-inspired resource shape (`apiVersion`, `kind`, `metada
 go get github.com/gpupaas-ai/gpupaas-go
 ```
 
+## Controller compatibility
+
+The SDK tags `vX.Y.Z` of one line (`vX.Y`) speak to one controller API line, which the constant `gpupaas.ControllerAPI`
+reports (`"vX.Y"`). Use the SDK line that matches your controller. A patch tag fixes a defect inside its line; a
+controller generation that changes the API gets a new line and a `release/vX.Y` branch.
+
+| Line   | Controller                                                              | Status         |
+|--------|-------------------------------------------------------------------------|----------------|
+| v0.1.x | Pre-release: verified against development controllers only, no release | In development |
+
 ## Quick start
 
-Mirrors [`paasctl/examples/go-client-basic`](https://github.com/RafaySystems/paasctl/blob/main/examples/go-client-basic/main.go):
+Typed clientset (every family; a live API key is required):
+
+```go
+cs, err := clientset.NewForConfig(gpupaas.ConfigFromEnv())
+if err != nil {
+    log.Fatal(err)
+}
+vms := cs.V1alpha1().Workspaces("demo").VMInstances("dev") // or cs.V1alpha1().VMInstances("demo") for project scope
+
+_, err = vms.Create(ctx, &v1alpha1.VMInstance{
+    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindVMInstance},
+    Metadata: v1alpha1.ObjectMeta{Name: "my-vm"},
+    Spec:     v1alpha1.VMInstanceSpec{Type: "vm-sku", CPUCount: "2", Memory: "4", Image: "ubuntu-24", SSHKey: "my-key"},
+}, gpupaas.CreateOptions{})
+
+ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+defer cancel()
+running, err := typed.WaitForVMInstance(ctx, vms, "my-vm", typed.VMInstanceWaitOptions{Done: typed.VMInstanceRunning})
+```
+
+Generic client (apply, get, list and delete by kind; handles `MKSCluster`), here on the in-memory backend:
 
 ```go
 c := client.New(client.Options{UseMemory: true})
 ctx := context.Background()
 
-ws := &v1alpha1.Workspace{
-    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindWorkspace},
+cluster := &v1alpha1.MKSCluster{
+    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindMKSCluster},
     Metadata: v1alpha1.ObjectMeta{Name: "example", Project: "demo"},
+    Spec:     v1alpha1.MKSClusterSpec{Profile: &v1alpha1.MKSProfileRef{Name: "mks-oneclick-1"}, KubernetesVersion: "1.36"},
 }
-applied, err := c.Apply(ctx, ws, "demo", "")
+applied, err := c.Apply(ctx, cluster, "demo", "")
 items, err := c.List(ctx, gvk, "demo", "")
 ```
 
@@ -38,20 +75,20 @@ The public SDK speaks **Kubernetes-style** `gpupaas.ai/v1alpha1` objects. The re
 
 | Resource | SDK (k8s-style) | Backend API |
 |----------|-----------------|-------------|
-| Project list/get | `Project`, `ProjectList` | `GET /auth/v1/projects/` then `GET /auth/v1/projects/{id}/` by resolved id |
-| Workspace list/apply/get | `Workspace`, `WorkspaceList` | `GET/POST /apis/paas.envmgmt.io/v1/projects/{project}/workspaces` |
-| Workspace collaborator | `WorkspaceCollaborator` | `GET/POST .../workspaces/{name}/collaborators`, `POST .../assigncollaborators`, `POST .../unassigncollaborators` |
-| VirtualMachine (project) | `VirtualMachine` | `GET/POST /apis/dev.envmgmt.io/v1/projects/{project}/virtualmachines`, `GET/DELETE .../{name}`, `GET .../status`, `POST .../action/{action}` |
-| VirtualMachine (workspace) | `VirtualMachine` | Same operations under `.../projects/{project}/workspaces/{name}/virtualmachines` |
-| BaremetalMachine | `BaremetalMachine`, `BaremetalMachineList`, `BaremetalMachineInfo`, `BaremetalConsoleSession` | `GET/POST /apis/infra.k8smgmt.io/v3/projects/{project}/baremetalmachines`, `GET/DELETE .../{name}`, `GET .../powerOn`, `GET .../powerOff`, `GET .../reboot`, `GET .../provision`, `POST .../reinstallOS`, `POST .../consoleSessions`, `GET .../status` |
-| MKSCluster | `MKSCluster`, `MKSClusterList` | `GET/POST /apis/paas.envmgmt.io/v1/projects/{project}/mksclusters`, `GET/DELETE .../{name}`, `POST .../upgrade`, `POST .../scaleNodeGroup`, `POST .../addNodeGroup`, `POST .../removeNodeGroup` |
-| MKSNode (cluster sub-resource) | `MKSNode`, `MKSNodeList` | `GET .../mksclusters/{cluster}/mksnodes`, `GET/DELETE .../{name}`, `POST .../drain`, `POST .../cordon`, `POST .../uncordon` |
-| MKSWorkerNodeGroup (cluster sub-resource) | `MKSWorkerNodeGroup`, `MKSWorkerNodeGroupList` | `GET/POST .../mksclusters/{cluster}/workernodegroups`, `GET/DELETE .../{name}` |
-| MKSAuditEvent (cluster sub-resource, read-only) | `MKSAuditEvent`, `MKSAuditEventList` | `GET .../mksclusters/{cluster}/auditevents`, `GET .../{id}` |
+| VMInstance (project) | `VMInstance`, `VMInstanceList` | `GET/POST /apis/dev.envmgmt.io/v1/projects/{project}/virtualmachines`, `GET/DELETE .../{name}`, `POST .../{name}/action/{verb}` |
+| VMInstance (workspace) | `VMInstance` | Same operations under `.../projects/{project}/workspaces/{workspace}/virtualmachines` |
+| VMProfile (read-only) | `VMProfile`, `VMProfileList` | `GET /apis/dev.envmgmt.io/v1/projects/{project}/vmprofiles[/{name}]` |
+| BareMetal | `BareMetal`, `BareMetalList` | `GET/POST /apis/dev.envmgmt.io/v1/projects/{project}/baremetals`, `GET/DELETE .../{name}`, `POST .../{name}/action/{verb}`; same under `.../workspaces/{workspace}/baremetals` |
+| BmProfile (read-only) | `BmProfile`, `BmProfileList` | `GET /apis/dev.envmgmt.io/v1/projects/{project}/bmprofiles[/{name}]` |
+| MKSCluster | `MKSCluster`, `MKSClusterList` | `GET/POST /apis/paas.k8smgmt.io/v3/projects/{project}/clusters`, `GET/DELETE .../{name}`; same under `.../workspaces/{workspace}/clusters` |
+| MKSClusterProfile (read-only) | `MKSClusterProfile`, `MKSClusterProfileList` | `GET /apis/paas.k8smgmt.io/v3/projects/{project}/clusterprofiles[/{name}]` |
+| MKSNode (read-only) | `MKSNode`, `MKSNodeList` | `GET /apis/paas.k8smgmt.io/v3/projects/{project}/clusternodes?cluster_name={cluster}` |
+| SshKey (read-only) | `SshKey` | `GET /apis/dev.envmgmt.io/v1/projects/{project}/[workspaces/{workspace}/]sshkeys/{name}` |
+| ComputeInstance (read-only) | `ComputeInstance`, `ComputeInstanceList` | `GET /apis/paas.envmgmt.io/v1/projects/{project}/[workspaces/{workspace}/]computeinstances[/{name}]?include_first_class=true`, plus the EaaS run events for `FailureLog` |
 
-Conversion lives in the `convert/` package (`ToAuthProject`, `FromPaaSWorkspace`, etc.). Verbose logging shows wire HTTP payloads; returned objects are always normalized to `gpupaas.ai/v1alpha1`.
+Conversion lives in the `convert/` package (`ToVMInstance`, `FromBareMetal`, `FromMKSCluster`, etc.). Verbose logging shows wire HTTP payloads; returned objects are always normalized to `gpupaas.ai/v1alpha1`.
 
-See the [OpenAPI explorer](https://console.gpupaas.ai/openapi-explorer) for workspace apply, list, detail, and extension APIs.
+See the [OpenAPI explorer](https://console.gpupaas.ai/openapi-explorer) for the backend API reference.
 
 ## Configuration
 
@@ -60,6 +97,7 @@ See the [OpenAPI explorer](https://console.gpupaas.ai/openapi-explorer) for work
 | `GPUPAAS_ENDPOINT` | `https://api.gpupaas.ai` | API base URL |
 | `GPUPAAS_API_KEY` | — | Rafay API key (`X-API-KEY`, same as paasctl `api_key`) |
 | `GPUPAAS_API_SECRET` | — | API secret for HMAC signing (defaults to API key if unset) |
+| `GPUPAAS_ORGANIZATION_ID` | — | Organization id or exact name, sent as `X-Organization-ID`. Needed by a partner-level API key; leave unset for an organization-level key (the platform ignores it there) |
 | `GPUPAAS_VERBOSE` | — | Log HTTP traffic when set (`1`, `true`) |
 | `GPUPAAS_TOKEN` | — | Deprecated alias for `GPUPAAS_API_KEY` |
 
@@ -72,12 +110,14 @@ c := client.New(client.Options{Config: cfg, Verbose: true})
 
 ## Apply YAML
 
+The apply engine handles `MKSCluster` documents (the kind the generic client manages):
+
 ```go
 c := client.New(client.Options{UseMemory: true})
-err := apply.ApplyFile(ctx, c, "workspace.yaml", "demo", "")
+err := apply.ApplyFile(ctx, c, "cluster.yaml", "demo", "")
 ```
 
-Multi-document YAML (`---`) is supported.
+Multi-document YAML (`---`) is supported. `apply.DeleteFile` deletes the objects of a manifest. VMs and bare-metal machines are managed through the typed clientset.
 
 ## Error handling
 
@@ -87,39 +127,44 @@ if gpupaas.IsNotFound(err) {
 }
 ```
 
+`IsConflict`, `IsUnauthorized`, `IsForbidden` and `IsServerError` classify the other common failures; `*gpupaas.APIError` carries the status code, message and raw body.
+
 ## Examples
 
+Virtual machines, bare metal and the MKS actions below need a live API (`GPUPAAS_API_KEY`); the MKS create, get, list and delete examples also run on the in-memory backend with `-memory`.
+
 ```bash
-go run ./examples/typed_client
-go run ./examples/workspace -memory
-go run ./examples/workspace-collaborator -memory -project demo -workspace dev
-GPUPAAS_API_KEY=... GPUPAAS_API_SECRET=... go run ./examples/workspace-collaborator -project demo -workspace dev -v
-go run ./examples/list-vms -memory -project demo
-go run ./examples/create-vm -memory -project demo -workspace dev -name example-vm
-go run ./examples/get-vm -memory -project demo -name example-vm
-go run ./examples/delete-vm -memory -project demo -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-start -project demo -workspace dev -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-stop -project demo -workspace dev -name example-vm
-go run ./examples/create-baremetal -memory -project demo -name example-bm
-go run ./examples/get-baremetal -memory -project demo -name example-bm
-go run ./examples/list-baremetals -memory -project demo
-go run ./examples/delete-baremetal -memory -project demo -name example-bm
-GPUPAAS_API_KEY=... go run ./examples/baremetal-reboot -project demo -name example-bm
-GPUPAAS_API_KEY=... go run ./examples/baremetal-reinstall-os -project demo -name example-bm -image-url http://images/example.qcow2
-GPUPAAS_API_KEY=... go run ./examples/baremetal-console-session -project demo -name example-bm -compute-id compute-123
-GPUPAAS_API_KEY=... go run ./examples/baremetal-status -project demo -name example-bm
+export GPUPAAS_API_KEY=... GPUPAAS_API_SECRET=...
+
+# virtual machines (first-class)
+go run ./examples/create-vm -project demo -workspace dev -name example-vm -sku vm-sku -cpu 2 -memory 4 -image ubuntu-24 -ssh-key my-key -wait
+go run ./examples/get-vm -project demo -workspace dev -name example-vm
+go run ./examples/list-vms -project demo -workspace dev
+go run ./examples/vm-start -project demo -workspace dev -name example-vm
+go run ./examples/vm-stop -project demo -workspace dev -name example-vm
+go run ./examples/vm-reboot -project demo -workspace dev -name example-vm
+go run ./examples/delete-vm -project demo -workspace dev -name example-vm -wait
+
+# bare metal (first-class)
+go run ./examples/create-baremetal -project demo -workspace dev -name example-bm -sku bm-sku -image ubuntu-24 -ssh-key my-key -wait
+go run ./examples/get-baremetal -project demo -workspace dev -name example-bm
+go run ./examples/list-baremetals -project demo -workspace dev
+go run ./examples/baremetal-reboot -project demo -workspace dev -name example-bm
+go run ./examples/baremetal-reinstall-os -project demo -workspace dev -name example-bm -image ubuntu-26
+go run ./examples/delete-baremetal -project demo -workspace dev -name example-bm -wait
+
+# MKS clusters
 go run ./examples/create-mks-cluster -memory -project demo -name my-cluster
 go run ./examples/get-mks-cluster -memory -project demo -name my-cluster
 go run ./examples/list-mks-clusters -memory -project demo
 go run ./examples/delete-mks-cluster -memory -project demo -name my-cluster
-GPUPAAS_API_KEY=... go run ./examples/mks-cluster-upgrade -project demo -name my-cluster -k8s-version 1.32
-GPUPAAS_API_KEY=... go run ./examples/mks-cluster-scale-nodegroup -project demo -name my-cluster -node-group wng-1 -desired-size 5
-GPUPAAS_API_KEY=... go run ./examples/list-mks-nodes -project demo -name my-cluster
-GPUPAAS_API_KEY=... go run ./examples/mks-node-drain -project demo -name my-cluster -node master-1
-GPUPAAS_API_KEY=... go run ./examples/list-mks-worker-node-groups -project demo -name my-cluster
-GPUPAAS_API_KEY=... go run ./examples/list-mks-audit-events -project demo -name my-cluster
-go run ./examples/apply_yaml ./manifest.yaml demo
-go run ./examples/delete_yaml ./manifest.yaml demo
+go run ./examples/mks-cluster-upgrade -project demo -name my-cluster -k8s-version 1.36
+go run ./examples/list-mks-nodes -project demo -name my-cluster
+
+# generic client and YAML apply (MKSCluster, in memory)
+go run ./examples/typed_client
+go run ./examples/apply_yaml ./cluster.yaml demo
+go run ./examples/delete_yaml ./cluster.yaml demo
 ```
 
 ## Related projects
@@ -148,7 +193,7 @@ All resources use the Kubernetes-style envelope:
 
 | Section | Purpose |
 |---------|---------|
-| `apiVersion` / `kind` | Identifies the type (`gpupaas.ai/v1alpha1`, `Project` or `Workspace`) |
+| `apiVersion` / `kind` | Identifies the type (`gpupaas.ai/v1alpha1`, `VMInstance`, `BareMetal` or `MKSCluster`) |
 | `metadata` | Identity, scope, labels, and annotations |
 | `spec` | **Desired state** — what you set on create/apply |
 | `status` | **Observed state** — populated by the platform on read; do not set on apply |
@@ -157,284 +202,40 @@ Platform hierarchy:
 
 ```text
 Organization (implicit — from your API token)
-└── Project          metadata.name
-    ├── VirtualMachine    project-scoped (metadata.project only)
-    ├── BaremetalMachine  project-scoped (metadata.project only)
-    ├── MKSCluster        project-scoped (metadata.project only)
-    │   ├── MKSNode             cluster sub-resource
-    │   ├── MKSWorkerNodeGroup  cluster sub-resource
-    │   └── MKSAuditEvent       cluster sub-resource (read-only)
-    └── Workspace    metadata.project + metadata.name
-        ├── WorkspaceCollaborator
-        └── VirtualMachine   workspace-scoped (metadata.project + metadata.workspace)
+└── Project              metadata.name (must exist)
+    ├── VMProfile, BmProfile, MKSClusterProfile, MKSNode   project-scoped, read-only
+    ├── VMInstance       project or workspace scope (dev.envmgmt.io/v1)
+    ├── BareMetal        project or workspace scope (dev.envmgmt.io/v1)
+    ├── MKSCluster       project or workspace scope (paas.k8smgmt.io/v3)
+    └── Workspace        metadata.project + metadata.workspace (must exist)
+        ├── VMInstance
+        ├── BareMetal
+        └── MKSCluster
 ```
 
-Method arguments mirror metadata scope: `Apply(ctx, obj, project, workspace)` and `List(ctx, gvk, project, workspace)`.
+Method arguments mirror metadata scope: `Apply(ctx, obj, project, workspace)` and `List(ctx, gvk, project, workspace)` on the generic client; `V1alpha1().<Kind>s(project)` or `V1alpha1().Workspaces(project).<Kind>s(workspace)` on the typed clientset.
 
 ---
 
-### Project
+### VMInstance
 
-**What it is for:** A **Project** is the top-level container on the gpupaas platform. It groups workspaces and isolates resources for a team, product line, or environment boundary within your organization. Every workspace belongs to exactly one project.
+**What it is for:** A **VMInstance** is the virtual machine a developer asks for (the platform's "Virtual Machine" experience). It is created from a **VMProfile** (the VM SKU), which fixes the allowed images, sizes, datacenters, boot disk range and public IP policy, and the platform provisions the VM on a host of the profile's datacenter. The wire kind is `VirtualMachine` (`dev.envmgmt.io/v1`, snake_case fields).
 
-**Scope:** Cluster-scoped in SDK terms — identified by `metadata.name` only. Do not set `metadata.project` or `metadata.workspace` on a Project.
+**Scope:** project or workspace. Use `Workspaces(project).VMInstances(workspace)` for workspace scope, or `VMInstances(project)` for a project-scoped VM.
 
-**Backend:** Listed via `GET /auth/v1/projects/`. **Get by name** lists projects, matches `results[].name`, then fetches `GET /auth/v1/projects/{id}/` using the internal project id (not the name). The auth id is stored on the k8s object as annotation `gpupaas.ai/project-id`.
+**Backend:** Apply is an upsert by name. `Create` reads first and fails with 409 when the name exists; `Update` applies a changed spec. Both return when the backend accepts the request; provisioning takes minutes, so poll `Get` or use `WaitForVMInstance`. Each VM has a hidden compute instance of the same name that holds the workflow error and log of a failure; read it with `ComputeInstances(project)`, which asks for hidden instances.
 
-#### Example
+| Method | Route | Notes |
+|--------|-------|-------|
+| Create / Update | `POST .../virtualmachines` | Upsert by name; `spec.type` cannot change after create |
+| Get / List | `GET .../virtualmachines[/{name}]` | |
+| Delete | `DELETE .../virtualmachines/{name}` | Starts a teardown; the record disappears when it succeeds |
+| Action | `POST .../virtualmachines/{name}/action/{verb}` | `start`, `stop`, `reboot`, ...; the payload is optional |
+| VMProfiles(project) | `GET .../vmprofiles[/{name}]` | Read-only |
 
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: Project
-metadata:
-  name: demo
-spec:
-  displayName: Demo Project
-  description: Shared GPU development environment
-  default: false
-```
+#### Object shape
 
-#### `metadata` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Unique project identifier (used in URLs and as `{project}` in workspace paths) |
-| `labels` | no | Key/value tags for selection or tooling |
-| `annotations` | no | Non-identifying metadata for integrations |
-
-#### `spec` fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `displayName` | string | Human-readable title shown in the console |
-| `description` | string | Short summary of the project's purpose |
-| `default` | bool | When `true`, marks this as the organization's default project (maps to auth API `default`) |
-
-#### `status` fields (read-only)
-
-| Field | Description |
-|-------|-------------|
-| `phase` | High-level observed state (e.g. `Default` when `spec.default` is true) |
-
----
-
-### Workspace
-
-**What it is for:** A **Workspace** is a logical partition inside a project where GPU workloads run. Use workspaces to separate dev/staging/prod, teams, or experiments while sharing the same project-level settings. Compute instances, services, and other PaaS objects are attached to a workspace (see [Workspace Ext API](https://console.gpupaas.ai/openapi-explorer#/Workspace%20Ext%20ApI) in the OpenAPI explorer).
-
-**Scope:** Project-scoped — requires `metadata.name` and `metadata.project` (the owning project). The `project` argument to `Apply` / `List` fills `metadata.project` when it is empty.
-
-**Backend:** Apply, list, get, and delete use `paas.envmgmt.io/v1` paths under `/apis/paas.envmgmt.io/v1/projects/{project}/workspaces`. Apply is **POST** (upsert); the SDK sends the paas wire format and returns a normalized `gpupaas.ai/v1alpha1` object.
-
-#### Example
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: Workspace
-metadata:
-  name: dev
-  project: demo
-  labels:
-    env: development
-spec:
-  displayName: Development
-  description: Interactive GPU development workspace
-  iconURL: https://example.com/icon.png
-  readme: |
-    ## Getting started
-    Launch a compute instance from the console or API.
-```
-
-#### `metadata` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Unique workspace name within the project |
-| `project` | yes | Owning project name (must match the project in the API path) |
-| `labels` | no | Key/value tags (passed through to the paas API) |
-| `annotations` | no | Non-identifying metadata (passed through to the paas API) |
-
-#### `spec` fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `displayName` | string | Human-readable name shown in the console (maps to paas `metadata.displayName`) |
-| `description` | string | Purpose or usage notes for this workspace (maps to paas `metadata.description`) |
-| `iconURL` | string | URL of an icon for catalog or UI display |
-| `readme` | string | Markdown or plain-text guidance for workspace users |
-
-#### `status` fields (read-only)
-
-| Field | Description |
-|-------|-------------|
-| `phase` | Observed condition from the backend (e.g. `StatusOK`, `StatusSubmitted`, `StatusFailed`) — sourced from paas `status.commonStatus.conditionStatus` |
-
-#### Related backend operations
-
-Workspace sub-resources are documented in the OpenAPI explorer:
-
-- [Workspace List](https://console.gpupaas.ai/openapi-explorer#/Workspace%20List)
-- [Workspace Apply](https://console.gpupaas.ai/openapi-explorer#/Workspace%20Apply)
-- [Workspace Detail](https://console.gpupaas.ai/openapi-explorer#/Workspace%20Detail)
-- [Workspace Ext API](https://console.gpupaas.ai/openapi-explorer#/Workspace%20Ext%20ApI) — collaborators, compute instances, services
-
----
-
-### WorkspaceCollaborator
-
-**What it is for:** A **WorkspaceCollaborator** grants a user access to a workspace. Use it to invite external users (not yet in the Rafay console) or assign existing Rafay/SSO users with a workspace access level.
-
-**Scope:** Requires `metadata.name`, `metadata.project`, and `metadata.workspace`. Pass `project` and `workspace` to `Apply` / `List` / `Delete` when those metadata fields are empty.
-
-**Backend mapping** ([Workspace Ext API](https://console.gpupaas.ai/openapi-explorer#/Workspace%20Ext%20ApI)):
-
-| SDK operation | Condition | Backend call |
-|---------------|-----------|--------------|
-| Apply (add) | `spec.email` set | `POST .../collaborators` with paas `WorkspaceCollaborator` body |
-| Apply (add) | `spec.username` or name only (no email) | `POST .../assigncollaborators?ssoUsers=true` when `spec.isSSOUser` is true |
-| List | — | `GET .../collaborators` (optional `?ssoUsers=true` via list options) |
-| Get | — | List + match by name, username, or email |
-| Delete | — | `POST .../unassigncollaborators` (pass `DeleteOptions.SSOUser` for SSO users) |
-
-#### Roles (read+write vs read-only)
-
-Set **`spec.role`** to one of the supported backend role constants:
-
-| `spec.role` | Capability |
-|-------------|------------|
-| `PAAS_WORKSPACE_COLLABORATOR` | Read and write workspace resources |
-| `PAAS_WORKSPACE_COLLABORATOR_READ_ONLY` | Read-only workspace access |
-
-Go constants: `v1alpha1.WorkspaceRoleCollaborator` and `v1alpha1.WorkspaceRoleCollaboratorReadOnly`.
-
-#### SSO users (`isSSOUser`)
-
-When assigning or removing an **existing SSO user** (not a local console user), set `spec.isSSOUser: true`. The SDK translates this to the backend query parameter `ssoUsers=true` on assign/unassign requests (this is how the hub API distinguishes SSO users — it is not a field on the paas JSON body).
-
-For list filtering to SSO users only, use typed client `ListOptions.SSOUsers`. For unassign without the full object, use `DeleteOptions.SSOUser`.
-
-#### Assign an existing Rafay user (read+write)
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: WorkspaceCollaborator
-metadata:
-  name: alice@gpupaas.ai
-  project: demo
-  workspace: dev
-spec:
-  username: alice@gpupaas.ai
-  role: PAAS_WORKSPACE_COLLABORATOR
-```
-
-#### Assign an existing SSO user (read-only)
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: WorkspaceCollaborator
-metadata:
-  name: bob.sso@gpupaas.ai
-  project: demo
-  workspace: dev
-spec:
-  username: bob.sso@gpupaas.ai
-  role: PAAS_WORKSPACE_COLLABORATOR_READ_ONLY
-  isSSOUser: true
-```
-
-#### Invite a new external user
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: WorkspaceCollaborator
-metadata:
-  name: guest@gpupaas.ai
-  project: demo
-  workspace: dev
-spec:
-  email: guest@gpupaas.ai
-  firstName: Guest
-  lastName: User
-  role: PAAS_WORKSPACE_COLLABORATOR
-  userType: Console
-```
-
-#### Using Go role constants
-
-```yaml
-spec:
-  username: alice@gpupaas.ai
-  role: PAAS_WORKSPACE_COLLABORATOR_READ_ONLY
-```
-
-#### `metadata` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Collaborator identifier — email-style Rafay username (assign) or invite email |
-| `project` | yes | Owning project |
-| `workspace` | yes | Target workspace within the project |
-| `labels` | no | Passed through on invite (`POST .../collaborators`) |
-| `annotations` | no | Tooling metadata |
-
-#### `spec` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `username` | assign flow | Existing Rafay username (e.g. `alice@gpupaas.ai`); defaults to `metadata.name` when empty |
-| `email` | invite flow | Email for a new external collaborator; triggers invite endpoint |
-| `firstName` | no | First name for invited users |
-| `lastName` | no | Last name for invited users |
-| `role` | yes | `PAAS_WORKSPACE_COLLABORATOR` or `PAAS_WORKSPACE_COLLABORATOR_READ_ONLY` |
-| `userType` | no | User type for invited users (e.g. `Console`, `API`) |
-| `isSSOUser` | no | When `true`, adds `ssoUsers=true` on assign/unassign for existing users |
-
-#### `status` fields (read-only)
-
-| Field | Description |
-|-------|-------------|
-| `phase` | Backend condition (e.g. `StatusOK`) from paas `status.conditionStatus` |
-| `role` | Collaborator role returned from the backend |
-
-#### Typed client
-
-```go
-collab := cs.V1alpha1().Workspaces("demo").Collaborators("dev")
-
-// Assign SSO user with read-only access
-_, _ = collab.Create(ctx, &v1alpha1.WorkspaceCollaborator{
-    Metadata: v1alpha1.ObjectMeta{Name: "bob.sso@gpupaas.ai", Project: "demo", Workspace: "dev"},
-    Spec: v1alpha1.WorkspaceCollaboratorSpec{
-        Username:  "bob.sso@gpupaas.ai",
-        Role:      v1alpha1.WorkspaceRoleCollaboratorReadOnly,
-        IsSSOUser: true,
-    },
-}, gpupaas.CreateOptions{})
-
-// List SSO collaborators only
-sso := true
-list, _ := collab.List(ctx, gpupaas.ListOptions{SSOUsers: &sso})
-
-// Remove SSO collaborator
-_, _ = collab.Delete(ctx, "bob.sso@gpupaas.ai", gpupaas.DeleteOptions{SSOUser: &sso})
-```
-
----
-
-### VirtualMachine
-
-**What it is for:** A **VirtualMachine** provisions and manages a dev virtual machine instance. VMs can be created at **project scope** (shared across workspaces) or **workspace scope** (scoped to a single workspace).
-
-**Scope:**
-
-| Scope | `metadata.workspace` | Typed client |
-|-------|---------------------|--------------|
-| Project | omit | `cs.V1alpha1().VirtualMachines(project)` |
-| Workspace | required | `cs.V1alpha1().Workspaces(project).VirtualMachines(workspace)` |
-
-**Backend:** `dev.envmgmt.io/v1` paths. Apply is **POST** to the collection URL. Lifecycle actions use `POST .../action/{start|stop|reboot|...}` with an optional `{variables, envs}` body. Observed provisioning state is read via `GET .../status`.
-
-#### Project-scoped create
+VMs are created through the typed clientset (`apply.ApplyFile` does not handle them). In YAML form the object is:
 
 ```yaml
 apiVersion: gpupaas.ai/v1alpha1
@@ -442,494 +243,97 @@ kind: VirtualMachine
 metadata:
   name: my-vm
   project: demo
+  workspace: dev            # omit for project scope
 spec:
-  virtualMachine:
-    name: ubuntu-22-profile
-    systemCatalog: true
-  cpuCount: "2"
-  memory: 4Gi
-  securityGroup: default-sg
-  sshKey: my-ssh-key
-  vpc: tenant-vpc
-  subnet: private-subnet
-  image: ubuntu-22.04
-  bootDiskSize: 50
-```
-
-#### Workspace-scoped create
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: VirtualMachine
-metadata:
-  name: my-vm
-  project: demo
-  workspace: dev
-spec:
-  virtualMachine:
-    name: ubuntu-22-profile
-  cpuCount: "2"
-  memory: 4Gi
-  image: ubuntu-22.04
-```
-
-#### Operations
-
-| Operation | Project client | Workspace client |
-|-----------|----------------|------------------|
-| List | `VirtualMachines("demo").List(ctx, opts)` | `Workspaces("demo").VirtualMachines("dev").List(...)` |
-| Get | `.Get(ctx, name, opts)` | same |
-| Create | `.Create(ctx, vm, opts)` | same |
-| Delete | `.Delete(ctx, name, opts)` | same |
-| Status | `.GetStatus(ctx, name, opts)` | same |
-| Start | `.Start(ctx, name, ActionOptions{})` | same |
-| Stop | `.Stop(ctx, name, ActionOptions{})` | same |
-| Reboot | `.Reboot(ctx, name, ActionOptions{})` | same |
-| Generic action | `.Action(ctx, name, verb, ActionOptions{Envs, Variables})` | same |
-
-#### `spec` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `virtualMachine.name` | yes | VM profile / catalog reference |
-| `virtualMachine.systemCatalog` | no | Use system catalog profile |
-| `vmId` | no | Inventory device ID of the virtual machine. Usually observed from the backend; may be set by clients to pin a VM to a specific device (wire field: `vm_id`). |
-| `cpuCount` | no | CPU count (string) |
-| `memory` | no | Memory size (e.g. `4Gi`) |
-| `securityGroup` | no | Security group name or ID — see [SecurityGroup](#securitygroup) |
-| `sshKey` | no | SSH key name or ID — see [SshKey](#sshkey) |
-| `vpc` / `subnet` | no | Network placement |
-| `assignPublicIp` | no | Assign a public IP |
-| `image` | no | OS image |
-| `bootDiskSize` | no | Boot disk size in GB |
-| `sharing` | no | Share mode (`None`, `All`, `Custom`) with workspaces/projects |
-| `sharedStorage` / `blockStorageType` | no | Storage references — see [Storage](#storage) |
-
-Wire mapping uses snake_case on `dev.envmgmt.io/v1` (e.g. `virtual_machine`, `security_group`); the SDK uses camelCase.
-
-#### `status` fields (read-only)
-
-| Field | Description |
-|-------|-------------|
-| `status` | Provisioning state (e.g. `success`, `pending`) |
-| `reason` | Human-readable reason |
-| `action` | Last action |
-| `output` | `hostName`, `privateIp`, `publicIp`, etc. |
-| `provisionedAt` / `lastConnectedAt` | Timestamps from backend |
-
-#### Typed client
-
-```go
-// Project-scoped
-projVMs := cs.V1alpha1().VirtualMachines("demo")
-list, _ := projVMs.List(ctx, gpupaas.ListOptions{})
-vm, _ := projVMs.Create(ctx, &v1alpha1.VirtualMachine{...}, gpupaas.CreateOptions{})
-_, _ = projVMs.Start(ctx, "my-vm", gpupaas.ActionOptions{})
-
-// Workspace-scoped
-wsVMs := cs.V1alpha1().Workspaces("demo").VirtualMachines("dev")
-vm, _ = wsVMs.Create(ctx, &v1alpha1.VirtualMachine{
-    Metadata: v1alpha1.ObjectMeta{Name: "my-vm", Project: "demo", Workspace: "dev"},
-    Spec:     v1alpha1.VirtualMachineSpec{VirtualMachine: v1alpha1.ResourceRef{Name: "ubuntu-22-profile"}},
-}, gpupaas.CreateOptions{})
-```
-
-#### Examples
-
-```bash
-go run ./examples/list-vms -memory -project demo
-go run ./examples/create-vm -memory -project demo -workspace dev -name example-vm
-go run ./examples/get-vm -memory -project demo -name example-vm
-go run ./examples/delete-vm -memory -project demo -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-start  -project demo -workspace dev -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-stop   -project demo -workspace dev -name example-vm
-GPUPAAS_API_KEY=... go run ./examples/vm-reboot -project demo -workspace dev -name example-vm
-```
-
----
-
-### Storage
-
-**What it is for:** Block or file storage volumes used by virtual machines (`spec.sharedStorage`, `spec.blockStorageType` on [VirtualMachine](#virtualmachine)).
-
-**Scope:**
-
-| Scope | `metadata.workspace` | Typed client |
-|-------|---------------------|--------------|
-| Project | omit | `cs.V1alpha1().Storages(project)` |
-| Workspace | required | `cs.V1alpha1().Workspaces(project).Storages(workspace)` |
-
-**Backend:** `POST /apis/dev.envmgmt.io/v1/projects/{project}/storages` (or workspace path). Apply is **POST** to the collection URL.
-
-#### Project-scoped create
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: Storage
-metadata:
-  name: my-storage
-  project: demo
-spec:
-  storage:
-    name: my-storage
-  type: standard
-  size: 10Gi
-```
-
-#### Workspace-scoped create
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: Storage
-metadata:
-  name: my-storage
-  project: demo
-  workspace: dev
-spec:
-  storage:
-    name: my-storage
-  type: standard
-  size: 10Gi
+  type: vm-sku              # the VMProfile (SKU)
+  cpu_count: "2"            # cpu_count and memory must match one preset row of the SKU
+  memory: "4"
+  image: ubuntu-24
+  ssh_key: my-key
 ```
 
 #### `spec` fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `storage.name` | yes | Storage resource name |
-| `storage.systemCatalog` | no | Use system catalog entry |
-| `type` | no | Storage type (e.g. `standard`, `block`) |
-| `size` | no | Capacity (e.g. `10Gi`) |
-| `datacenter` | no | Target datacenter |
-| `accessPolicy` | no | Access policy |
-| `contractTerm` | no | Contract term |
-| `enableEncryptionAtRest` / `enableEncryptionInTransit` | no | Encryption flags |
-| `storageType` | no | Classification (`block`, `file`, `object`) |
-| `sharing` | no | Share mode with workspaces/projects |
+| Field | Notes |
+|-------|-------|
+| `type` | The VMProfile (SKU) name; immutable |
+| `cpu_count`, `memory`, `gpu_count` | Strings; together they must match one preset row of the SKU (`gpu_count` is required when the SKU has GPUs). `gpu_model` and `gpu_vendor` are inherited from the SKU |
+| `image` | One of the SKU's images |
+| `ssh_key`, `guest_password` | Set at least one on create. The password is write-only and never returned |
+| `datacenter`, `vpc`, `subnet`, `security_group` | Defaults come from the SKU |
+| `assign_public_ip` | Honored only when the SKU's public IP mode is `Optional` |
+| `shared_storage` | Name of a shared filesystem storage to mount |
+| `user_data` | Cloud-init script as plain text |
+| `boot_disk_size` | GB; within the SKU's boot disk range |
+| `sharing` | `shareMode` and the workspaces or projects shared with |
+| read-only | `vm_id` (device id in inventory) |
 
-#### Typed client
+Fields the SDK does not model are kept in `Extra` and sent back on update, so applying a spec read from the API never drops server-owned fields.
+
+`status` has `status`, `reason`, `reasonDetail` (the workflow error behind a failed reason), `action` (`deploy`, `start`, `stop`, `reboot`, `destroy`, ...) and `output{host_name, instance_id, os_name, private_ip, public_ip, server_host, user_name}`. `Phase()` returns `pending`, `in_progress`, `running`, `stopped`, `failed`, `deleting`, `delete_pending` (the delete was parked for the operator; end users cannot delete again) or `destroyfailed`; `PowerState()` derives `running`, `stopped` or `unknown`.
+
+#### Waiting
 
 ```go
-storages := cs.V1alpha1().Storages("demo")
-list, _ := storages.List(ctx, gpupaas.ListOptions{})
-vol, _ := storages.Create(ctx, &v1alpha1.Storage{...}, gpupaas.CreateOptions{})
-
-wsStorages := cs.V1alpha1().Workspaces("demo").Storages("dev")
-vol, _ = wsStorages.Create(ctx, &v1alpha1.Storage{...}, gpupaas.CreateOptions{})
+vms := cs.V1alpha1().Workspaces(project).VMInstances(workspace)
+running, err := typed.WaitForVMInstance(ctx, vms, "my-vm", typed.VMInstanceWaitOptions{
+    Done:   typed.VMInstanceRunning, // fails with *VMInstanceFailedError on failed / destroyfailed / delete_pending
+    Stable: 2,
+})
 ```
+
+After an action use `typed.VMInstanceActionDone(verb)` with `Stable: 2`: right after the request the backend can still show the previous state. `typed.VMInstanceGone` with `GoneIsDone: true` waits for a delete.
 
 #### Examples
 
 ```bash
-go run ./examples/list-storages -memory -project demo
-go run ./examples/create-storage -memory -project demo -name example-storage
-go run ./examples/get-storage -memory -project demo -name example-storage
-go run ./examples/delete-storage -memory -project demo -name example-storage
+go run ./examples/create-vm -project demo -workspace dev -name example-vm -wait
+go run ./examples/vm-stop -project demo -workspace dev -name example-vm -wait
 ```
 
----
-
-### SecurityGroup
-
-**What it is for:** Firewall rules for VM network access. Referenced by `spec.securityGroup` on [VirtualMachine](#virtualmachine).
-
-**Scope:** Same dual-scope pattern as Storage (`Storages` / `SecurityGroups` on project or workspace client).
-
-**Backend:** `POST .../securitygroups` on `dev.envmgmt.io/v1`.
-
-#### Project-scoped create
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: SecurityGroup
-metadata:
-  name: default-sg
-  project: demo
-spec:
-  securityGroup:
-    name: default-sg
-  type: default
-  ipRules:
-    - sourceCidr: 0.0.0.0/0
-      application: ssh
-      action: allow
-```
-
-#### `spec` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `securityGroup.name` | yes | Security group name |
-| `type` | no | Security group type |
-| `ipRules` | no | IP-based rules (`sourceCidr`, `application`, `action`) |
-| `portForwardRules` | no | Port forwarding rules |
-| `rules` | no | Combined access rules |
-| `sharing` | no | Share mode with workspaces/projects |
-
-Wire fields: `security_group`, `ip_rules`, `port_forward_rules`, `source_cidr`.
-
-#### Typed client
-
-```go
-sgs := cs.V1alpha1().SecurityGroups("demo")
-sg, _ := sgs.Create(ctx, &v1alpha1.SecurityGroup{...}, gpupaas.CreateOptions{})
-
-wsSGs := cs.V1alpha1().Workspaces("demo").SecurityGroups("dev")
-sg, _ = wsSGs.Get(ctx, "default-sg", gpupaas.GetOptions{})
-```
-
-#### Examples
-
-```bash
-go run ./examples/list-security-groups -memory -project demo
-go run ./examples/create-security-group -memory -project demo -name default-sg
-go run ./examples/get-security-group -memory -project demo -name default-sg
-go run ./examples/delete-security-group -memory -project demo -name default-sg
-```
-
----
-
-### SshKey
-
-**What it is for:** SSH public keys for VM login. Referenced by `spec.sshKey` on [VirtualMachine](#virtualmachine).
-
-**Scope:** Same dual-scope pattern (`SshKeys` on project or workspace client).
-
-**Backend:** `POST .../sshkeys` on `dev.envmgmt.io/v1`.
-
-#### Project-scoped create
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: SshKey
-metadata:
-  name: my-ssh-key
-  project: demo
-spec:
-  sshKey:
-    name: my-ssh-key
-  publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ...
-```
-
-#### `spec` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `sshKey.name` | yes | SSH key name |
-| `publicKey` | no | Public key material |
-| `type` | no | Key type |
-| `sharing` | no | Share mode with workspaces/projects |
-
-Wire fields: `ssh_key`, `public_key`.
-
-#### Typed client
-
-```go
-keys := cs.V1alpha1().SshKeys("demo")
-key, _ := keys.Create(ctx, &v1alpha1.SshKey{...}, gpupaas.CreateOptions{})
-
-wsKeys := cs.V1alpha1().Workspaces("demo").SshKeys("dev")
-key, _ = wsKeys.List(ctx, gpupaas.ListOptions{})
-```
-
-#### Examples
-
-```bash
-go run ./examples/list-ssh-keys -memory -project demo
-go run ./examples/create-ssh-key -memory -project demo -name example-ssh-key
-go run ./examples/get-ssh-key -memory -project demo -name example-ssh-key
-go run ./examples/delete-ssh-key -memory -project demo -name example-ssh-key
-```
-
----
-
-### BaremetalMachine
-
-**What it is for:** A **BaremetalMachine** represents a physical host managed by the gpupaas baremetal control plane (metal3 / ironic). Use it to enroll, image, power-cycle, and reinstall a baremetal node, and to open a Serial-Over-LAN (SOL) console session for remote diagnostics.
-
-**Scope:** Project-scoped only — requires `metadata.name` and `metadata.project`. **There is no workspace scope** for BaremetalMachine; passing `metadata.workspace` is ignored. The wire `apiVersion` is `infra.k8smgmt.io/v3`; the SDK normalizes reads to `gpupaas.ai/v1alpha1`.
-
-**Backend mapping** (`infra.k8smgmt.io/v3`):
-
-| SDK operation | Backend call | Notes |
-|---------------|--------------|-------|
-| Create / Apply | `POST /apis/infra.k8smgmt.io/v3/projects/{project}/baremetalmachines` | Upsert; returns the applied object |
-| List | `GET .../baremetalmachines` | Supports `limit`, `offset`, `selector` via `ListOptions` |
-| Get | `GET .../baremetalmachines/{name}` | |
-| Update | `POST .../baremetalmachines` | Same path as Create (idempotent apply) |
-| Delete | `DELETE .../baremetalmachines/{name}` | Supports `auto-destroy`, `force` via `DeleteOptions` |
-| PowerOn | `GET .../baremetalmachines/{name}/powerOn` | Returns the updated BaremetalMachine |
-| PowerOff | `GET .../baremetalmachines/{name}/powerOff` | Returns the updated BaremetalMachine |
-| Reboot | `GET .../baremetalmachines/{name}/reboot` | Returns the updated BaremetalMachine |
-| Provision | `GET .../baremetalmachines/{name}/provision` | Triggers deployment; returns the updated BaremetalMachine |
-| ReinstallOS | `POST .../baremetalmachines/{name}/reinstallOS` | Body is a `BaremetalImage` (URL, format, checksum, checksumType); returns the updated BaremetalMachine |
-| CreateConsoleSession | `POST .../baremetalmachines/{name}/consoleSessions` | Body has `compute_id` (snake_case); returns `BaremetalConsoleSession` (`session_id`, `agent_session_id`, `console_url`) |
-| GetStatusInfo | `GET .../baremetalmachines/{name}/status` | Returns `BaremetalMachineInfo` (free-form `data.fields`); distinct from inline `status.conditions` |
-
-#### Create / Apply
-
-```yaml
-apiVersion: gpupaas.ai/v1alpha1
-kind: BaremetalMachine
-metadata:
-  name: bm-01
-  project: demo
-spec:
-  baremetalProvisionerName: default-provisioner
-  hostname: bm-01
-  datacenter: dc1
-  deviceId: device-001
-  macAddress: aa:bb:cc:dd:ee:ff
-  architecture: x86_64
-  bootMode: UEFI
-  automatedCleaningMode: metadata
-  online: true
-  sshKey: my-ssh-key
-  image:
-    url: http://images/example.qcow2
-    format: qcow2
-    checksumType: auto
-    checksum: auto
-  rootDeviceHints:
-    deviceName: /dev/sda
-    minSizeGigabytes: 100
-  raid:
-    hardwareRAIDVolumes:
-      - name: root
-        level: "1"
-        numberOfPhysicalDisks: 2
-        sizeGibibytes: 200
-  userData: |
-    #cloud-config
-    package_update: true
-```
-
-#### `metadata` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Unique baremetal machine name within the project |
-| `project` | yes | Owning project name |
-| `displayName` | no | Human-readable name (writable) |
-| `description` | no | Human-readable description (writable) |
-| `labels` / `annotations` | no | Tags and tooling metadata |
-| `createdBy` / `modifiedBy` | no (read-only) | `UserMeta` populated by the backend; ignored on writes |
-
-#### `spec` fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `baremetalProvisionerName` | string | Provisioner that manages this host |
-| `hostname` | string | Hostname assigned to the machine |
-| `datacenter` | string | Inventory datacenter the host lives in |
-| `deviceId` | string | Inventory device id (wire field: `deviceId`) |
-| `macAddress` | string | MAC address of the provisioning NIC |
-| `architecture` | string | CPU architecture (`x86_64`, `aarch64`); usually populated by inspection |
-| `bootMode` | string | `UEFI` (default), `Legacy`, or `UEFISecureBoot` |
-| `automatedCleaningMode` | string | Set to `disabled` to skip cleaning |
-| `online` | bool | Desired power state when the host is in a stable state |
-| `sshKey` | string | SSH key name injected for first-boot login |
-| `userData` / `systemUserData` | string | cloud-init payloads |
-| `image` | `BaremetalImage` | Deployment image (`url`, `format`, `checksum`, `checksumType`) |
-| `rootDeviceHints` | `BaremetalRootDeviceHints` | Hints to narrow the OS deployment disk |
-| `raid` | `BaremetalRaid` | `hardwareRAIDVolumes` / `softwareRAIDVolumes` configuration |
-
-#### `status` fields (read-only)
-
-| Field | Description |
-|-------|-------------|
-| `conditions[]` | `type`, `status` (`NotSet`, `Pending`, `Success`, `Failed`), `reason`, `lastUpdated` (RFC3339) — observed lifecycle conditions |
-
-The richer per-host telemetry (hardware inventory, network observations) is exposed separately via `GetStatusInfo` as a `BaremetalMachineInfo{ Data: { Fields: map[string]any } }` envelope.
-
-#### Imperative sub-actions
-
-```go
-bms := cs.V1alpha1().BaremetalMachines("demo")
-
-// Power management (GET-based; return the updated BaremetalMachine)
-_, _ = bms.PowerOn(ctx, "bm-01", gpupaas.ActionOptions{})
-_, _ = bms.PowerOff(ctx, "bm-01", gpupaas.ActionOptions{})
-_, _ = bms.Reboot(ctx, "bm-01", gpupaas.ActionOptions{})
-
-// Provisioning lifecycle
-_, _ = bms.Provision(ctx, "bm-01", gpupaas.ActionOptions{})
-_, _ = bms.ReinstallOS(ctx, "bm-01", &v1alpha1.BaremetalImage{
-    URL:          "http://images/example.qcow2",
-    Format:       "qcow2",
-    ChecksumType: "auto",
-    Checksum:     "auto",
-}, gpupaas.ActionOptions{})
-
-// Serial-Over-LAN console (POST; returns a short-lived WebSocket URL)
-session, _ := bms.CreateConsoleSession(ctx, "bm-01", &v1alpha1.BaremetalConsoleSessionRequest{
-    ComputeID: "compute-123",
-}, gpupaas.ActionOptions{})
-// session.ConsoleURL, session.SessionID, session.AgentSessionID
-
-// Free-form runtime info
-info, _ := bms.GetStatusInfo(ctx, "bm-01", gpupaas.GetOptions{})
-// info.Data.Fields ...
-```
-
-#### Typed client
-
-```go
-bms := cs.V1alpha1().BaremetalMachines("demo")
-list, _ := bms.List(ctx, gpupaas.ListOptions{})
-bm, _ := bms.Create(ctx, &v1alpha1.BaremetalMachine{
-    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindBaremetalMachine},
-    Metadata: v1alpha1.ObjectMeta{Name: "bm-01", Project: "demo"},
-    Spec:     v1alpha1.BaremetalMachineSpec{Hostname: "bm-01"},
-}, gpupaas.CreateOptions{})
-_, _ = bms.Get(ctx, "bm-01", gpupaas.GetOptions{})
-_ = bms.Delete(ctx, "bm-01", gpupaas.DeleteOptions{})
-```
-
-#### Examples
-
-```bash
-go run ./examples/create-baremetal -memory -project demo -name example-bm
-go run ./examples/get-baremetal -memory -project demo -name example-bm
-go run ./examples/list-baremetals -memory -project demo
-go run ./examples/delete-baremetal -memory -project demo -name example-bm
-GPUPAAS_API_KEY=... go run ./examples/baremetal-reboot           -project demo -name example-bm
-GPUPAAS_API_KEY=... go run ./examples/baremetal-reinstall-os     -project demo -name example-bm -image-url http://images/example.qcow2
-GPUPAAS_API_KEY=... go run ./examples/baremetal-console-session  -project demo -name example-bm -compute-id compute-123
-GPUPAAS_API_KEY=... go run ./examples/baremetal-status           -project demo -name example-bm
-```
+The in-process mock `mock/vmapi` reproduces the API (SKU validation, capacity failures, asynchronous provisioning and actions, failed deletes, the hidden compute instance) for tests.
 
 ---
 
 ### MKSCluster
 
-**What it is for:** An **MKSCluster** (Managed Kubernetes Service) provisions and manages a Kubernetes cluster on gpupaas infrastructure. Creating a cluster persists it in the MKS database, syncs node entries, and triggers a WorkspaceComputeInstance to provision the cluster via the EaaS `mks-provision` environment template. The SDK also exposes per-cluster sub-resources: nodes, worker node groups, and audit events.
+**What it is for:** An **MKSCluster** is a first-class managed Kubernetes cluster (the platform's "Kubernetes SKU" experience). It is created from a **ClusterProfile**, which fixes the allowed Kubernetes versions, CNIs, compute SKUs, images and datacenters. The platform provisions the nodes (bare metal or VMs from the profile's SKUs), installs Kubernetes and keeps a mirror compute instance of the same name.
 
-**Scope:** Project-scoped only — requires `metadata.name` and `metadata.project`. **There is no workspace scope.** The wire `apiVersion` is `paas.envmgmt.io/v1`; the SDK normalizes reads to `gpupaas.ai/v1alpha1`. The `MKSProfile` resource from the MKS API is intentionally **not** part of this SDK.
+**Scope:** project scope (administrators) and workspace scope (developers). The wire `apiVersion` is `paas.k8smgmt.io/v3`; the SDK normalizes reads to `gpupaas.ai/v1alpha1`. `ClusterProfile` and `ClusterNode` are project-scoped and read-only.
 
-**Backend mapping** (`paas.envmgmt.io/v1`):
+Clusters are **declarative**. `Create` stores a new cluster (it fails with 409 if the name exists, because the backend upserts by name); `Update` applies a changed spec: change `spec.kubernetesVersion` to upgrade, edit `spec.workerPools` to add, remove or resize pools. Both return when the backend accepts the request; provisioning takes many minutes, so poll `Get` or use `WaitForMKSCluster`.
+
+**Backend mapping** (`paas.k8smgmt.io/v3`):
 
 | SDK operation | Backend call | Notes |
 |---------------|--------------|-------|
-| Create / Apply | `POST /apis/paas.envmgmt.io/v1/projects/{project}/mksclusters` | Upsert; persisted even if the provisioning trigger fails (with an error status) |
-| List | `GET .../mksclusters` | Supports `limit`, `offset` via `ListOptions` |
-| Get | `GET .../mksclusters/{name}` | |
-| Delete | `DELETE .../mksclusters/{name}` | Soft-delete; triggers a destroy WCI |
-| Upgrade | `POST .../mksclusters/{name}/upgrade` | Body `{k8sVersion, platformVersion}`; returns the updated cluster |
-| ScaleNodeGroup | `POST .../mksclusters/{name}/scaleNodeGroup` | Body `{nodeGroupName, desiredCount, minCount, maxCount}` |
-| AddNodeGroup | `POST .../mksclusters/{name}/addNodeGroup` | Body `{nodeGroup}` (an `MKSNodeGroup`) |
-| RemoveNodeGroup | `POST .../mksclusters/{name}/removeNodeGroup` | Body `{nodeGroupName}` |
+| Create | `GET .../clusters/{name}` then `POST .../clusters` | Checks the name is free first |
+| Update / Apply | `POST .../clusters` | Upsert; send the spec read from `Get` with your edits (the SDK keeps unmodeled fields and the `version` revision) |
+| Get / List | `GET .../clusters[/{name}]` | |
+| Delete | `DELETE .../clusters/{name}` | Asynchronous: `DESTROYPENDING`, `DESTROYING`, then gone; `DESTROYFAILED` can be retried with another DELETE |
+| MKSClusterProfiles(project) | `GET .../clusterprofiles[/{name}]` | Read-only |
+| MKSClusterProfiles(project).CreateOptions | `GET .../clusterprofiles/{name}/createoptions` | What the SKU allows for the control plane and the workers |
+| MKSClusterProfiles(project).AvailableCapacity | `GET .../clusterprofiles/{name}/availablecapacity` | The answer is returned as received (`Raw`): the reference does not describe it |
+| MKSNodes(project).ListForCluster | `GET .../clusternodes?cluster_name=` | Read-only; labels carry `nodepoolname` (`master` for control plane); v3.1.41 controllers also report private IP, roles, OS and status |
+| MKSClusters(...).AddNodePool / RemoveNodePool | `POST .../clusters/{c}/nodepools`, `DELETE .../nodepools/{pool}` | The dedicated routes for one pool; an unset `assignPublicIp` takes the existing workers' value |
+| MKSClusters(...).Upgrade | `POST .../clusters/{c}/upgrade` | Send only what changes (`K8sVersion`, `Blueprint`, `BlueprintVersion`, `CNI`); one minor version at a time, never down |
+| MKSClusters(...).UpdateMetadata | `PATCH .../clusters/{c}/metadata` | Labels, annotations and tags without a redeploy; a nil map is left alone, a map with its `Replace` flag replaces, an empty map clears |
+| MKSClusters(...).Redeploy | `POST .../clusters/{c}/redeploy` | Only from ERROR or DEGRADED (412 otherwise) |
+| MKSClusters(...).Status | `GET .../clusters/{c}/status` | The declared pools joined with the live nodes, their addresses and conditions, and the health |
+| MKSClusters(...).AuditEvents | `GET .../clusters/{c}/auditevents` | Filters: action, result, resource type, actor, from, to; paged |
+| MKSNodes(project).CordonNode / UncordonNode / DrainNode / DeleteNode | `POST .../clusternodes/{host}/{verb}?cluster_name=`, `DELETE .../clusternodes/{host}` | One node, by hostname |
+| MKSNodes(project).UpdateNodeMetadata / UpdateNodeTaints | `PUT .../clusternodes/{host}/metadata`, `.../taints` | Labels and annotations as a per-key change; taints replace the whole set (empty clears) |
+| MKSMatchmaker(project) | `GET .../clustermatchmakers/{kubernetesversions,availableos,availableimages,availablespecs,matchskus,availablecomputeskus}` | Read-only pickers of the console. Datacenters repeat; SKU kinds and compute types are joined with `+`. Keys are read as camelCase or snake_case |
 
-Sub-resource clients are reached through the cluster client:
-`cs.V1alpha1().MKSClusters(project).Nodes(cluster)`, `.WorkerNodeGroups(cluster)`, `.AuditEvents(cluster)`.
+The day-2 calls address the project route whatever the scope of the client: cluster names are unique per organization. They return the
+cluster as the platform answers, usually still in the phase the operation started: wait with `WaitForMKSCluster`.
 
-| Sub-resource | SDK operations | Backend call |
-|--------------|----------------|--------------|
-| MKSNode | List, Get, Delete, Drain, Cordon, Uncordon | `GET .../mksnodes`, `GET/DELETE .../{name}`, `POST .../{name}/{drain\|cordon\|uncordon}` |
-| MKSWorkerNodeGroup | List, Get, Create (apply), Delete | `GET/POST .../workernodegroups`, `GET/DELETE .../{name}` |
-| MKSAuditEvent | List, Get (by id) | `GET .../auditevents`, `GET .../auditevents/{id}` (read-only) |
+The v3.1.41 controllers validate pools strictly: every new pool names a VPC and a subnet (`Network`), the control plane has 1 or 3 nodes and keeps
+its size (convert to HA is not implemented), every worker pool carries the same `AssignPublicIP`, a pool's datacenter is the cluster's location,
+a boot disk is for virtual-machine pools only, and `SSHKey` is the name of an SSH key resource. The mock in `mock/clusterapi` enforces these rules
+with `Options{PerPoolNetwork: true}`.
 
-> The generic remote backend (`client.Apply/Get/List/Delete`) supports `MKSCluster` only. Sub-resources require a cluster name and are accessed through the typed clientset.
+Workspace scope: `cs.V1alpha1().Workspaces(project).MKSClusters(workspace)`. The generic client (`client.Apply/Get/List/Delete`, `apply.ApplyFile`) supports `MKSCluster` at both scopes.
 
 #### Create / Apply
 
@@ -937,130 +341,79 @@ Sub-resource clients are reached through the cluster client:
 apiVersion: gpupaas.ai/v1alpha1
 kind: MKSCluster
 metadata:
-  name: my-cluster
-  project: demo
+  name: demo-cluster
+  project: system-catalog
+  workspace: team-a            # omit for project scope
 spec:
-  kubernetesVersion: "1.31"
-  cni: calico
-  os: ubuntu22.04
-  haEnabled: false
-  dedicatedControlPlane: false
-  blueprint:
-    name: minimal
-    version: v1
-  networking:
-    podCidr: 192.168.0.0/16
-    serviceCidr: 10.96.0.0/12
-    ipFamily: IPv4
-  nodes:
-    - hostname: master-1
-      privateIp: 10.0.0.10
-      sshUserName: ubuntu
-      sshKey: "-----BEGIN OPENSSH PRIVATE KEY-----\n..."
-      roles: [master, worker]
-      arch: amd64
-      operatingSystem: ubuntu22.04
+  profile:
+    name: mks-oneclick-1
+  kubernetesVersion: "1.36"    # short form accepted; the platform resolves the latest patch
+  controlPlane:
+    name: control-plane
+    skuName: bmaas-test-1
+    skuType: BMAAS
+    osImage: ubuntu-26
+    sshKey: mine
+    scaling: { mode: manual, count: 1 }
+  workerPools:
+    - name: pool-a
+      skuName: bmaas-test-1
+      skuType: BMAAS
+      osImage: ubuntu-26
+      scaling: { mode: manual, count: 2 }
 ```
 
-#### `metadata` fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Unique cluster name within the project |
-| `project` | yes | Owning project name |
-| `labels` / `annotations` | no | Tags and tooling metadata |
+Leave out what the profile decides (SKU, image, datacenter, networking, blueprint): the platform fills them in and returns them on `Get`.
 
 #### `spec` fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `kubernetesVersion` | string | Kubernetes version in `major.minor` form (e.g. `1.31`) |
-| `platformVersion` | string | Platform version |
-| `cni` / `cniVersion` | string | CNI provider and version (e.g. `calico`) |
-| `os` | string | Node operating system (e.g. `ubuntu22.04`) |
-| `haEnabled` | bool | Highly-available control plane |
-| `dedicatedControlPlane` | bool | Dedicate control-plane nodes (no workloads) |
-| `location` | string | Cluster location/datacenter |
-| `blueprint` | `MKSBlueprint` | `name` + `version` of the cluster blueprint |
-| `networking` | `MKSNetworking` | `vpc`, `subnet`, `podCidr`, `serviceCidr`, `ipFamily`, `securityGroups`, … |
-| `proxy` | `MKSProxy` | `httpProxy`, `httpsProxy`, `noProxy`, `proxyRootCa`, `tlsTerminate` |
-| `storage` | `MKSStorage` | `block` / `sharedFs` / `object` / `highSpeed` backends + `defaultStorageClass` |
-| `tags` | map | Free-form key/value tags |
-| `controlPlaneNodeGroup` | `MKSNodeGroup` | Control-plane node group spec |
-| `workerNodeGroups` | `[]MKSNodeGroup` | Worker node group specs |
-| `nodes` | `[]MKSNodeSpec` | Node specifications for device-based clusters |
+| `profile.name` | string | The ClusterProfile (Kubernetes SKU) |
+| `kubernetesVersion` | string | For example `1.36` or `v1.36.4`; changing it upgrades the cluster |
+| `location` | string | Datacenter; defaults to the profile's |
+| `blueprint` | `MKSBlueprint` | `name` + `version`; defaults to the profile's |
+| `networking` | `MKSNetworking` | `vpc`, `subnet`, `podSubnet`, `serviceSubnet`, `cni{name,version}` |
+| `controlPlane` | `MKSNodeGroup` | Control-plane nodes: `name`, `datacenter`, `osImage`, `skuName`, `skuType` (`BMAAS`/`VMAAS`), `sshKey`, `scaling{mode,count}`; the platform adds `computeType`, `shape`, `skuDisplayName` |
+| `workerPools` | `[]MKSNodeGroup` | Worker pools, identified by `name`. An empty list removes every pool |
+| `tags` | map | Free-form tags |
+| `billing` | `MKSBilling` | `variables.ContractTerm` (months, `0` = on demand) |
+| `sharing` | `DevSharingSpec` | Cross-project sharing |
 
-`MKSNodeGroup` carries `id`, `sku`, `scalingMode`, `nodeCount`, `minNodes`, `maxNodes`, `desiredNodes`, `publicIp`, `sshKey`, `userData`, `nodeLabels`, `nodeAnnotations`, and `kubeletConfig`. `MKSNodeSpec` carries `hostname`, `roles`, `sshUserName`, `sshKey`, `sshPort`, `privateIp`, `arch`, `operatingSystem`, `interface`, `nodeLabels`, `nodeAnnotations`, `nodeTaints`, `userData`, `kubeletConfig`, `nodePool`, `sku`, and `publicIp`.
+Fields the SDK does not model are kept in `Extra` (on the spec and on each node group) and sent back on update, so applying a spec read from the API never drops server-owned fields.
 
 #### `status` fields (read-only)
 
 | Field | Description |
 |-------|-------------|
-| `condition` | Cluster condition (e.g. `MKS_CLUSTER_STATUS_PROVISIONING`, `MKS_CLUSTER_STATUS_RUNNING`, `MKS_CLUSTER_STATUS_ERROR`) |
-| `conditionReason` | Human-readable reason |
-| `output` | `apiServerEndpoint`, `clusterIdEdgesrv` |
-| `action` | Last action |
+| `status` | Enum name, for example `MKS_CLUSTER_STATUS_RUNNING`; `Phase()` returns `running`. Others: `provisioning`, `updating`, `upgrading`, `degraded`, `error`, `destroypending`, `destroying`, `destroyfailed` |
+| `reason`, `action` | Human-readable reason and the last action (`deploy`, `redeploy`, `destroy`) |
+| `output.clusterIdEdgesrv` | Identifier in the Kubernetes management plane |
 
-#### Imperative sub-actions
-
-```go
-clusters := cs.V1alpha1().MKSClusters("demo")
-
-// Upgrade Kubernetes version
-_, _ = clusters.Upgrade(ctx, "my-cluster", &v1alpha1.MKSUpgradeRequest{
-    K8sVersion: "1.32",
-}, gpupaas.ActionOptions{})
-
-// Scale a worker node group
-desired := int32(5)
-_, _ = clusters.ScaleNodeGroup(ctx, "my-cluster", &v1alpha1.MKSScaleNodeGroupRequest{
-    NodeGroupName: "wng-1",
-    DesiredCount:  &desired,
-}, gpupaas.ActionOptions{})
-
-// Add / remove worker node groups
-_, _ = clusters.AddNodeGroup(ctx, "my-cluster", &v1alpha1.MKSNodeGroup{ID: "wng-2", SKU: "small"}, gpupaas.ActionOptions{})
-_, _ = clusters.RemoveNodeGroup(ctx, "my-cluster", "wng-1", gpupaas.ActionOptions{})
-```
-
-#### Node, worker node group, and audit event sub-clients
+#### Waiting
 
 ```go
-clusters := cs.V1alpha1().MKSClusters("demo")
-
-// Nodes
-nodes := clusters.Nodes("my-cluster")
-nodeList, _ := nodes.List(ctx, gpupaas.ListOptions{})
-force := true
-_, _ = nodes.Drain(ctx, "master-1", &v1alpha1.MKSDrainRequest{Force: &force}, gpupaas.ActionOptions{})
-_, _ = nodes.Cordon(ctx, "master-1", gpupaas.ActionOptions{})
-_, _ = nodes.Uncordon(ctx, "master-1", gpupaas.ActionOptions{})
-
-// Worker node groups (apply = create/update)
-wngs := clusters.WorkerNodeGroups("my-cluster")
-_, _ = wngs.Create(ctx, &v1alpha1.MKSWorkerNodeGroup{
-    Metadata: v1alpha1.ObjectMeta{Name: "wng-1", Project: "demo"},
-    Spec:     v1alpha1.MKSWorkerNodeGroupSpec{NodeGroup: &v1alpha1.MKSNodeGroup{ID: "wng-1", SKU: "medium"}},
-}, gpupaas.CreateOptions{})
-
-// Audit events (read-only)
-events := clusters.AuditEvents("my-cluster")
-evtList, _ := events.List(ctx, gpupaas.ListOptions{})
+clusters := cs.V1alpha1().Workspaces(project).MKSClusters(workspace)
+created, _ := clusters.Create(ctx, cluster, gpupaas.CreateOptions{})
+running, err := typed.WaitForMKSCluster(ctx, clusters, "demo-cluster", typed.MKSWaitOptions{
+    Done:   typed.MKSClusterRunning, // fails with *MKSClusterFailedError on ERROR / DESTROYFAILED
+    Stable: 2,
+})
 ```
 
-#### Typed client
+After an update use `typed.MKSClusterMatches(desiredSpec)` with `Stable: 3`: the backend can still report RUNNING with the old spec for a moment after accepting a write, and can flap RUNNING, UPDATING, RUNNING while it finishes. `typed.MKSClusterGone` with `GoneIsDone: true` waits for a delete. For resizes, `MKSNodes(project).ListForCluster` shows when new nodes joined (the status can return to RUNNING before they do).
+
+#### Kubeconfig and node pool operations
 
 ```go
-clusters := cs.V1alpha1().MKSClusters("demo")
-list, _ := clusters.List(ctx, gpupaas.ListOptions{})
-cluster, _ := clusters.Create(ctx, &v1alpha1.MKSCluster{
-    TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindMKSCluster},
-    Metadata: v1alpha1.ObjectMeta{Name: "my-cluster", Project: "demo"},
-    Spec:     v1alpha1.MKSClusterSpec{KubernetesVersion: "1.31", CNI: "calico"},
-}, gpupaas.CreateOptions{})
-_, _ = clusters.Get(ctx, "my-cluster", gpupaas.GetOptions{})
-_ = clusters.Delete(ctx, "my-cluster", gpupaas.DeleteOptions{})
+clusters := cs.V1alpha1().MKSClusters(project)
+kubeconfig, err := clusters.Kubeconfig(ctx, "demo-cluster") // user kubeconfig of a registered, running cluster
+
+nodes := cs.V1alpha1().MKSNodes(project)
+res, err := nodes.CordonPool(ctx, "demo-cluster", "pool-a") // also UncordonPool and DrainPool(ctx, cluster, pool, typed.MKSDrainOptions{})
 ```
+
+A pool operation answers with the number of nodes it tried and one result per node. Read the per-node messages: the platform has reported `succeeded` for a node whose message was a kubectl connection error.
 
 #### Examples
 
@@ -1069,13 +422,121 @@ go run ./examples/create-mks-cluster -memory -project demo -name my-cluster
 go run ./examples/get-mks-cluster -memory -project demo -name my-cluster
 go run ./examples/list-mks-clusters -memory -project demo
 go run ./examples/delete-mks-cluster -memory -project demo -name my-cluster
-GPUPAAS_API_KEY=... go run ./examples/mks-cluster-upgrade          -project demo -name my-cluster -k8s-version 1.32
-GPUPAAS_API_KEY=... go run ./examples/mks-cluster-scale-nodegroup  -project demo -name my-cluster -node-group wng-1 -desired-size 5
-GPUPAAS_API_KEY=... go run ./examples/list-mks-nodes              -project demo -name my-cluster
-GPUPAAS_API_KEY=... go run ./examples/mks-node-drain             -project demo -name my-cluster -node master-1
-GPUPAAS_API_KEY=... go run ./examples/list-mks-worker-node-groups -project demo -name my-cluster
-GPUPAAS_API_KEY=... go run ./examples/list-mks-audit-events       -project demo -name my-cluster
+GPUPAAS_API_KEY=... go run ./examples/mks-cluster-upgrade -project demo -workspace team-a -name my-cluster -k8s-version 1.36
+GPUPAAS_API_KEY=... go run ./examples/list-mks-nodes -project demo -name my-cluster
 ```
+
+The in-process mock `mock/clusterapi` reproduces the API (profile validation, derived fields, revisions, status flaps, failure injection) for tests.
+
+
+---
+
+### BareMetal
+
+**What it is for:** A **BareMetal** is the bare-metal machine a developer asks for (the platform's "Bare Metal" experience). It is created from a **BmProfile** (the bare-metal SKU), which fixes the allowed images, datacenters, public IP policy and contract terms, and the platform provisions a machine from the SKU's inventory.
+
+**Scope:** project or workspace. Use `Workspaces(project).BareMetals(workspace)` for workspace scope, or `BareMetals(project)` for a project-scoped machine.
+
+**Backend:** `dev.envmgmt.io/v1`. Apply is an upsert by name. `Create` reads first and fails with 409 when the name exists; `Update` applies a changed spec. Both return when the backend accepts the request; provisioning takes many minutes, so poll `Get` or use `WaitForBareMetal`. Each machine has a hidden compute instance of the same name (`spec.computeInstanceId`) that holds the workflow error and log of a failure; read it with `ComputeInstances(project)`, which asks for hidden instances.
+
+| Method | Route | Notes |
+|--------|-------|-------|
+| Create / Update | `POST .../baremetals` | Upsert by name; `spec.type` cannot change after create |
+| Get / List | `GET .../baremetals[/{name}]` | |
+| Delete | `DELETE .../baremetals/{name}` | Starts a teardown; the record disappears when it succeeds |
+| Action | `POST .../baremetals/{name}/action/{verb}` | `start`, `stop`, `reboot`, `Reinstall OS` (takes `{image, preserveUserConfiguration}`) |
+| BmProfiles(project) | `GET .../bmprofiles[/{name}]` | Read-only |
+
+#### Spec
+
+| Field | Notes |
+|-------|-------|
+| `type` | The BmProfile (SKU) name; immutable |
+| `image` | One of the SKU's images; required on create |
+| `sshKey`, `userPassword` | Set at least one on create. The password is write-only and never returned |
+| `datacenter`, `vpc`, `subnet`, `securityGroup` | Defaults come from the SKU |
+| `assignPublicIp` | Allowed when the SKU's policy is `Enabled` or `CustomerSelectable` |
+| `hssStorage`, `objectStorage` | Names of storages to attach |
+| `userData` | Cloud-init script as plain text; the service encodes it |
+| `contractTerm` | Months; must be one the SKU offers |
+| `sharing` | `shareMode` and the workspaces or projects shared with |
+| read-only | `computeInstanceId`, `provisionerType` (`bcm` or `non_bcm`), `gpuName` |
+
+`status` has `status`, `reason`, `action` (`deploy`, `start`, `stop`, `reboot`, `destroy`, ...) and `output{hostName, privateIp, publicIp, userName, ...}`. `Phase()` returns `pending`, `in_progress`, `running`, `stopped`, `failed`, `deleting`, `delete_pending` (the delete was parked for the operator; end users cannot delete again) or `destroyfailed`.
+
+#### Waiting
+
+```go
+machines := cs.V1alpha1().Workspaces(project).BareMetals(workspace)
+running, err := typed.WaitForBareMetal(ctx, machines, "demo-machine", typed.BareMetalWaitOptions{
+    Done:   typed.BareMetalRunning, // fails with *BareMetalFailedError on failed / destroyfailed / delete_pending
+    Stable: 2,
+})
+```
+
+After an action use `typed.BareMetalActionDone(verb)` with `Stable: 2`: right after the request the backend can still show the previous state. `typed.BareMetalGone` with `GoneIsDone: true` waits for a delete; a failed record that has not started its teardown can still read `failed` with the `deploy` action for a moment, so tolerate a few such polls.
+
+The in-process mock `mock/bmapi` reproduces the API (SKU validation, capacity failures, asynchronous provisioning and actions, failed deletes, the hidden compute instance) for tests.
+
+
+---
+
+### SshKey (read-only)
+
+An **SshKey** is a key a VM, bare-metal machine or cluster node can name in `sshKey` / `ssh_key`. The SDK only looks keys up, for example to check that a key a cluster names exists. Keys are created elsewhere.
+
+```go
+key, err := cs.V1alpha1().Workspaces(project).SshKeys(workspace).Get(ctx, "my-key", gpupaas.GetOptions{}) // or SshKeys(project) for project scope
+if gpupaas.IsNotFound(err) {
+    // the key does not exist
+}
+```
+
+`GET /apis/dev.envmgmt.io/v1/projects/{project}/[workspaces/{workspace}/]sshkeys/{name}`.
+
+---
+
+### ComputeInstance (read-only)
+
+**What it is for:** Every first-class VM, bare-metal machine and MKS cluster or node has a **ComputeInstance** of the same name behind it (`paas.envmgmt.io/v1`). The platform hides these instances from normal listings, so the client asks for them with `include_first_class=true`. They hold what the first-class record does not: the workflow error and the provisioning log of a failure, and the teardown that outlives the record on delete. The SDK reads them only; it does not create, publish, change or delete them.
+
+**Scope:** project or workspace. Use `Workspaces(project).ComputeInstances(workspace)` for workspace scope, or `ComputeInstances(project)` for a project-scoped instance.
+
+| Method | Route | Notes |
+|--------|-------|-------|
+| Get | `GET .../computeinstances/{name}?include_first_class=true` | |
+| List | `GET .../computeinstances?include_first_class=true` | The server caps a page at 50 items whatever `Limit` you ask for; follow `list.Metadata.Continue` (an offset) until a page is empty |
+| FailureLog | `GET /apis/eaas.envmgmt.io/v1/projects/{project}/environments/{env}/events/{trigger}[/activity/{id}/stdout]` | The WARNING and ERROR lines of the failed activities of the last run |
+
+```go
+ci := cs.V1alpha1().Workspaces("demo").ComputeInstances("dev")
+inst, err := ci.Get(ctx, "my-vm", gpupaas.GetOptions{})
+if err == nil && inst.Status.Failed() {
+    fmt.Println(inst.Status.Reason, inst.Status.WorkflowStatus) // per-task errors
+    // The log usually names the real cause when status.reason is only "Failed to deploy".
+    if failure, err := ci.FailureLog(ctx, "my-vm", 12); err == nil {
+        fmt.Println(failure.Lines)
+    }
+}
+```
+
+Notes from the live API:
+
+- **Missing objects answer HTTP 502** with a body like `{"internal":"ent: workspace_compute_instance not found","external":"Upstream misbehaving"}`. `gpupaas.IsNotFound` recognises this; the error message is taken from `internal`.
+- A failed run reports `status.reason` and `status.workflowStatus` (per-task errors). The reason is often generic; `FailureLog` returns the detailed lines from the environment activity output. Log text can name hosts and addresses: show it to the operator but do not store it.
+- `status.environment` and `status.provisionedResource` (with the id of the latest run, `TriggerID()`) are present only after a run succeeded or failed; a destroy failure has neither.
+- `Phase()` normalizes the raw status (`not_deployed`, `success`, `failed`, `destroyfailed`, ...); `InProgress()` and `Failed()` classify it.
+- **Which organization a request acts in depends on the kind of API key.** An organization-level key is bound to its organization and needs nothing more; the platform ignores any `X-Organization-ID` sent with it. A partner-level key is not bound to an organization, so set `Config.OrganizationID` (env `GPUPAAS_ORGANIZATION_ID`) to the organization's id or its exact, case-sensitive name; it becomes the `X-Organization-ID` header and the organization must belong to the key's partner. Without it the platform answers 502 `id or partnerID/orgID/name not set`; an unknown id or name answers 500 `get organization by name returned error`. The SDK keeps those messages and appends what to set.
+
+#### `status` fields (read-only)
+
+| Field | Description |
+|-------|-------------|
+| `status` | Raw status (`not_deployed`, `success`, `failed`, ...); `Phase()` normalizes it |
+| `reason` | Human-readable reason of the last run |
+| `action` | Last action: `publish`, `start`, `stop`, `reboot`, `destroy`, ... |
+| `workflowStatus` | Per-task result, including errors |
+| `environment`, `provisionedResource` | The EaaS environment and run |
 
 ---
 
@@ -1084,8 +545,8 @@ GPUPAAS_API_KEY=... go run ./examples/list-mks-audit-events       -project demo 
 | Field | Used on | Notes |
 |-------|---------|-------|
 | `metadata.name` | All resources | Primary identifier; immutable after create |
-| `metadata.project` | Workspace, VirtualMachine, BaremetalMachine, MKSCluster, Storage, SecurityGroup, SshKey, WorkspaceCollaborator | Parent project; required for scoped resources |
-| `metadata.workspace` | VirtualMachine, Storage, SecurityGroup, SshKey (workspace scope), WorkspaceCollaborator | Parent workspace within a project |
+| `metadata.project` | VMInstance, BareMetal, MKSCluster, SshKey, ComputeInstance | Parent project; required for scoped resources |
+| `metadata.workspace` | VMInstance, BareMetal, MKSCluster, SshKey, ComputeInstance (workspace scope) | Parent workspace within a project |
 | `metadata.displayName` | All | Optional human-friendly name. Sent on writes. |
 | `metadata.description` | All | Optional human-readable description. Sent on writes. |
 | `metadata.labels` | All | Selectors and automation hooks |
@@ -1093,7 +554,7 @@ GPUPAAS_API_KEY=... go run ./examples/list-mks-audit-events       -project demo 
 | `metadata.createdBy` | All (read-only) | `UserMeta` populated by the backend on reads; **ignored on writes** |
 | `metadata.modifiedBy` | All (read-only) | `UserMeta` populated by the backend on reads; **ignored on writes** |
 
-`UserMeta` carries `username`, `isSSOUser`, and an optional `options` block (`description`, `required`, `override.type`, `override.restrictedValues`). It is read-only — `ToDev*` converters strip it before sending.
+`UserMeta` carries `username`, `isSSOUser`, and an optional `options` block (`description`, `required`, `override.type`, `override.restrictedValues`). It is read-only; the converters strip it before sending.
 
 When applying YAML with `apply.ApplyFile`, pass the default project (and workspace when needed) as arguments; empty fields on the object are filled from those defaults.
 
