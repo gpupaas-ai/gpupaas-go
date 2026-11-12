@@ -50,6 +50,7 @@ func (c *bareMetalClient) Create(ctx context.Context, obj *apiv1.BareMetal, _ gp
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "bare metal is nil"}
 	}
+	defer lockCreate("bare-metal", c.project, c.workspace, obj.Metadata.Name)()
 	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
 		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("bare metal %q already exists", obj.Metadata.Name)}
 	} else if !gpupaas.IsNotFound(err) {

@@ -2,6 +2,8 @@ package v1alpha1
 
 import (
 	"net/url"
+	"strings"
+	"sync"
 
 	gpupaas "github.com/gpupaas-ai/gpupaas-go"
 	"github.com/gpupaas-ai/gpupaas-go/rest"
@@ -146,3 +148,16 @@ func firstNonEmpty(values ...string) string {
 // errDryRunUnsupported is returned by Delete when DeleteOptions.DryRun is set: the API has no dry-run mode, and
 // carrying on would delete the object for real.
 var errDryRunUnsupported = &gpupaas.APIError{StatusCode: 400, Message: "dry run is not supported for delete: the request was not sent"}
+
+// createLocks serializes the check-then-create of one object name within a process. The backend upserts by name, so
+// without it two concurrent Create calls for one name both see "not found" and the second silently overwrites the
+// first. The lock does not cover another process: only the backend can refuse that (MKS clusters ask it to).
+var createLocks sync.Map
+
+func lockCreate(kind, project, workspace, name string) func() {
+	key := strings.Join([]string{kind, project, workspace, name}, "\x00")
+	m, _ := createLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}

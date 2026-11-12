@@ -26,6 +26,7 @@ func (c *storageClient) Create(ctx context.Context, obj *apiv1.Storage, _ gpupaa
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "storage is nil"}
 	}
+	defer lockCreate("storage", c.project, c.workspace, obj.Metadata.Name)()
 	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
 		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("storage %q already exists", obj.Metadata.Name)}
 	} else if !gpupaas.IsNotFound(err) {

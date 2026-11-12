@@ -26,6 +26,7 @@ func (c *securityGroupClient) Create(ctx context.Context, obj *apiv1.SecurityGro
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "security group is nil"}
 	}
+	defer lockCreate("security-group", c.project, c.workspace, obj.Metadata.Name)()
 	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
 		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("security group %q already exists", obj.Metadata.Name)}
 	} else if !gpupaas.IsNotFound(err) {

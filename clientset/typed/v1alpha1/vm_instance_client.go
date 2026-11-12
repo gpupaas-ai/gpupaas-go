@@ -50,6 +50,7 @@ func (c *vmInstanceClient) Create(ctx context.Context, obj *apiv1.VMInstance, _ 
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "virtual machine is nil"}
 	}
+	defer lockCreate("vm", c.project, c.workspace, obj.Metadata.Name)()
 	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
 		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("virtual machine %q already exists", obj.Metadata.Name)}
 	} else if !gpupaas.IsNotFound(err) {

@@ -45,6 +45,9 @@ type Options struct {
 	MirrorLinger time.Duration
 	// NotFoundStatus is the HTTP status for a missing instance. Defaults to 404.
 	NotFoundStatus int
+	// DropMetadataText makes the mock store no display name and no description, as the live platform did for a
+	// description on a bare-metal machine.
+	DropMetadataText bool
 	// UnsupportedActions are action names the instances refuse with 400, as the live platform does
 	// for "reboot" on BCM instances: `action "reboot" is not supported for this instance`.
 	UnsupportedActions []string
@@ -394,6 +397,9 @@ func (s *Server) apply(w http.ResponseWriter, r *http.Request, rt route) {
 	}
 	next := convert.BareMetalObject{APIVersion: convert.DevAPIVersion, Kind: convert.DevBareMetalKind}
 	next.Metadata = convert.DevMetadata{Name: name, Project: rt.project, Workspace: rt.workspace, DisplayName: in.Metadata.DisplayName, Description: in.Metadata.Description, Labels: in.Metadata.Labels, Annotations: in.Metadata.Annotations}
+	if s.opts.DropMetadataText {
+		next.Metadata.DisplayName, next.Metadata.Description = "", ""
+	}
 	next.Spec = derive(sp, prof)
 	next.Spec.UserPassword = ""
 	now := time.Now()

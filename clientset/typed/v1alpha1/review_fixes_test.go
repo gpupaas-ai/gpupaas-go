@@ -121,3 +121,32 @@ func TestMKSNodeDeepCopyDoesNotShareMapsOrSlices(t *testing.T) {
 		t.Fatalf("the copy shares state with the original: %+v", n.Spec)
 	}
 }
+
+// Concurrent creates of one name in a process: one wins, the others get the 409 and nobody overwrites the winner.
+func TestConcurrentCreatesOfOneNameAllButOneConflict(t *testing.T) {
+	_, cs := newVMFixture(t, vmapi.Options{})
+	vms := cs.V1alpha1().Workspaces(testProject).VMInstances("ws")
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			obj := &apiv1.VMInstance{Metadata: apiv1.ObjectMeta{Name: "race"}, Spec: apiv1.VMInstanceSpec{Type: "vm-sku", Image: "ubuntu-24", SSHKey: "key1", CPUCount: "3", Memory: "3"}}
+			_, err := vms.Create(waitCtx(t), obj, gpupaas.CreateOptions{})
+			errs <- err
+		}()
+	}
+	won, conflicts := 0, 0
+	for i := 0; i < n; i++ {
+		switch err := <-errs; {
+		case err == nil:
+			won++
+		case gpupaas.IsConflict(err):
+			conflicts++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if won != 1 || conflicts != n-1 {
+		t.Fatalf("won=%d conflicts=%d, want 1 and %d", won, conflicts, n-1)
+	}
+}

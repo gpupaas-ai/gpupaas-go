@@ -43,64 +43,16 @@ type StorageWaitOptions struct {
 // is gone (when GoneIsDone is set), an error is returned, or ctx ends (use context.WithTimeout for a
 // deadline). It returns the last observed volume, which is nil when the volume is gone.
 func WaitForStorage(ctx context.Context, c StorageInterface, name string, opts StorageWaitOptions) (*apiv1.Storage, error) {
-	if opts.Done == nil && !opts.GoneIsDone {
-		return nil, fmt.Errorf("WaitForStorage: set Done or GoneIsDone, or the wait would poll until the context ends")
-	}
-	interval := opts.Interval
-	if interval <= 0 {
-		interval = 10 * time.Second
-	}
-	stable := opts.Stable
-	if stable <= 0 {
-		stable = 1
-	}
-	maxErrs := opts.MaxConsecutiveErrors
-	if maxErrs <= 0 {
-		maxErrs = 10
-	}
-	var last *apiv1.Storage
-	errs, streak := 0, 0
-	for {
-		obj, err := c.Get(ctx, name, gpupaas.GetOptions{})
-		switch {
-		case err == nil:
-			errs = 0
-			last = obj
-			if opts.Done != nil {
-				done, derr := opts.Done(obj)
-				if derr != nil {
-					return last, derr
-				}
-				if done {
-					streak++
-					if streak >= stable {
-						return last, nil
-					}
-				} else {
-					streak = 0
-				}
-			}
-		case gpupaas.IsNotFound(err):
-			if opts.GoneIsDone {
-				return nil, nil
-			}
-			return last, err
-		default:
-			if ctx.Err() != nil {
-				return last, storageCtxError(ctx, name, last)
-			}
-			errs++
-			streak = 0 // the stability guard needs consecutive fresh reads
-			if errs >= maxErrs {
-				return last, err
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return last, storageCtxError(ctx, name, last)
-		case <-time.After(interval):
-		}
-	}
+	return pollUntil(ctx, pollParams[apiv1.Storage]{
+		fn:         "WaitForStorage",
+		get:        func(ctx context.Context) (*apiv1.Storage, error) { return c.Get(ctx, name, gpupaas.GetOptions{}) },
+		done:       opts.Done,
+		ctxError:   func(ctx context.Context, last *apiv1.Storage) error { return storageCtxError(ctx, name, last) },
+		interval:   opts.Interval,
+		stable:     opts.Stable,
+		maxErrs:    opts.MaxConsecutiveErrors,
+		goneIsDone: opts.GoneIsDone,
+	})
 }
 
 func storageCtxError(ctx context.Context, name string, last *apiv1.Storage) error {

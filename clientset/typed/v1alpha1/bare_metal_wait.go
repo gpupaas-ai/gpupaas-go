@@ -45,64 +45,16 @@ type BareMetalWaitOptions struct {
 // context.WithTimeout for a deadline). It returns the last observed instance, which is nil when
 // the instance is gone.
 func WaitForBareMetal(ctx context.Context, c BareMetalInterface, name string, opts BareMetalWaitOptions) (*apiv1.BareMetal, error) {
-	if opts.Done == nil && !opts.GoneIsDone {
-		return nil, fmt.Errorf("WaitForBareMetal: set Done or GoneIsDone, or the wait would poll until the context ends")
-	}
-	interval := opts.Interval
-	if interval <= 0 {
-		interval = 10 * time.Second
-	}
-	stable := opts.Stable
-	if stable <= 0 {
-		stable = 1
-	}
-	maxErrs := opts.MaxConsecutiveErrors
-	if maxErrs <= 0 {
-		maxErrs = 10 // about 100 s at the default 10 s interval: a short API outage must not fail a create that takes an hour
-	}
-	var last *apiv1.BareMetal
-	errs, streak := 0, 0
-	for {
-		obj, err := c.Get(ctx, name, gpupaas.GetOptions{})
-		switch {
-		case err == nil:
-			errs = 0
-			last = obj
-			if opts.Done != nil {
-				done, derr := opts.Done(obj)
-				if derr != nil {
-					return last, derr
-				}
-				if done {
-					streak++
-					if streak >= stable {
-						return last, nil
-					}
-				} else {
-					streak = 0
-				}
-			}
-		case gpupaas.IsNotFound(err):
-			if opts.GoneIsDone {
-				return nil, nil
-			}
-			return last, err
-		default:
-			if ctx.Err() != nil {
-				return last, bareMetalCtxError(ctx, name, last)
-			}
-			errs++
-			streak = 0 // the stability guard needs consecutive fresh reads
-			if errs >= maxErrs {
-				return last, err
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return last, bareMetalCtxError(ctx, name, last)
-		case <-time.After(interval):
-		}
-	}
+	return pollUntil(ctx, pollParams[apiv1.BareMetal]{
+		fn:         "WaitForBareMetal",
+		get:        func(ctx context.Context) (*apiv1.BareMetal, error) { return c.Get(ctx, name, gpupaas.GetOptions{}) },
+		done:       opts.Done,
+		ctxError:   func(ctx context.Context, last *apiv1.BareMetal) error { return bareMetalCtxError(ctx, name, last) },
+		interval:   opts.Interval,
+		stable:     opts.Stable,
+		maxErrs:    opts.MaxConsecutiveErrors,
+		goneIsDone: opts.GoneIsDone,
+	})
 }
 
 func bareMetalCtxError(ctx context.Context, name string, last *apiv1.BareMetal) error {

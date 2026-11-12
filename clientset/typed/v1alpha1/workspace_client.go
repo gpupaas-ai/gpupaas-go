@@ -39,6 +39,7 @@ func (c *workspaceClient) Create(ctx context.Context, obj *apiv1.Workspace, _ gp
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "workspace is nil"}
 	}
+	defer lockCreate("workspace", c.project, "", obj.Metadata.Name)()
 	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
 		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("workspace %q already exists", obj.Metadata.Name)}
 	} else if !gpupaas.IsNotFound(err) {
