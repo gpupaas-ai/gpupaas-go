@@ -12,7 +12,7 @@ const (
 	DevSecurityGroupListKind = "SecurityGroupList"
 )
 
-// SecurityGroupPaths returns collection and item path builders for the given scope.
+// SecurityGroupPaths returns the collection and item path builders for the given scope.
 func SecurityGroupPaths(scope DevScope) (collection func() string, item func(name string) string) {
 	if scope.Workspace != "" {
 		return func() string {
@@ -30,21 +30,6 @@ func SecurityGroupPaths(scope DevScope) (collection func() string, item func(nam
 		}
 }
 
-// DevIpRule is an IP rule on the wire.
-type DevIpRule struct {
-	SourceCIDR  string `json:"source_cidr,omitempty"`
-	Application string `json:"application,omitempty"`
-	Action      string `json:"action,omitempty"`
-}
-
-// DevPortForwardRule is a port-forward rule on the wire.
-type DevPortForwardRule struct {
-	SourceCIDR      string `json:"source_cidr,omitempty"`
-	Application     string `json:"application,omitempty"`
-	ApplicationPort string `json:"application_port,omitempty"`
-	Protocol        string `json:"protocol,omitempty"`
-}
-
 // DevRule is a security group rule on the wire.
 type DevRule struct {
 	SourceCIDR      string `json:"source_cidr,omitempty"`
@@ -56,12 +41,9 @@ type DevRule struct {
 
 // DevSecurityGroupSpec is the wire spec for a security group.
 type DevSecurityGroupSpec struct {
-	SecurityGroup    DevResourceRef       `json:"security_group"`
-	Type             string               `json:"type,omitempty"`
-	IPRules          []DevIpRule          `json:"ip_rules,omitempty"`
-	PortForwardRules []DevPortForwardRule `json:"port_forward_rules,omitempty"`
-	Rules            []DevRule            `json:"rules,omitempty"`
-	Sharing          *DevSharingSpec      `json:"sharing,omitempty"`
+	Type    string          `json:"type,omitempty"`
+	Rules   []DevRule       `json:"rules,omitempty"`
+	Sharing *DevSharingSpec `json:"sharing,omitempty"`
 }
 
 // DevSecurityGroupStatus is runtime status on the wire.
@@ -88,150 +70,73 @@ type DevSecurityGroupList struct {
 	Items      []DevSecurityGroup `json:"items"`
 }
 
-// ToDevSecurityGroup converts SDK security group to wire format.
+// ToDevSecurityGroup converts an SDK security group to the wire format.
 func ToDevSecurityGroup(sg *apiv1.SecurityGroup, project, workspace string) *DevSecurityGroup {
 	if sg == nil {
 		return nil
 	}
-	return &DevSecurityGroup{
+	out := &DevSecurityGroup{
 		APIVersion: DevAPIVersion,
 		Kind:       DevSecurityGroupKind,
 		Metadata:   devMetadataToWire(sg.Metadata, project, workspace),
-		Spec:       toDevSecurityGroupSpec(sg.Spec),
-		Status:     DevSecurityGroupStatus{},
+		Spec:       DevSecurityGroupSpec{Type: sg.Spec.Type},
 	}
-}
-
-func toDevSecurityGroupSpec(s apiv1.SecurityGroupSpec) DevSecurityGroupSpec {
-	out := DevSecurityGroupSpec{
-		SecurityGroup: DevResourceRef{
-			Name:          s.SecurityGroup.Name,
-			SystemCatalog: s.SecurityGroup.SystemCatalog,
-		},
-		Type: s.Type,
+	for _, r := range sg.Spec.Rules {
+		out.Spec.Rules = append(out.Spec.Rules, DevRule{
+			SourceCIDR:      r.SourceCIDR,
+			Application:     r.Application,
+			ApplicationPort: r.ApplicationPort,
+			Protocol:        r.Protocol,
+			Action:          r.Action,
+		})
 	}
-	if len(s.IPRules) > 0 {
-		out.IPRules = make([]DevIpRule, len(s.IPRules))
-		for i, r := range s.IPRules {
-			out.IPRules[i] = DevIpRule{
-				SourceCIDR:  r.SourceCIDR,
-				Application: r.Application,
-				Action:      r.Action,
-			}
-		}
-	}
-	if len(s.PortForwardRules) > 0 {
-		out.PortForwardRules = make([]DevPortForwardRule, len(s.PortForwardRules))
-		for i, r := range s.PortForwardRules {
-			out.PortForwardRules[i] = DevPortForwardRule{
-				SourceCIDR:      r.SourceCIDR,
-				Application:     r.Application,
-				ApplicationPort: r.ApplicationPort,
-				Protocol:        r.Protocol,
-			}
-		}
-	}
-	if len(s.Rules) > 0 {
-		out.Rules = make([]DevRule, len(s.Rules))
-		for i, r := range s.Rules {
-			out.Rules[i] = DevRule{
-				SourceCIDR:      r.SourceCIDR,
-				Application:     r.Application,
-				ApplicationPort: r.ApplicationPort,
-				Protocol:        r.Protocol,
-				Action:          r.Action,
-			}
-		}
-	}
-	if s.Sharing != nil {
-		out.Sharing = toDevSharing(*s.Sharing)
+	if sg.Spec.Sharing != nil {
+		out.Spec.Sharing = toDevSharing(*sg.Spec.Sharing)
 	}
 	return out
 }
 
-// FromDevSecurityGroup converts wire format to SDK security group.
+// FromDevSecurityGroup converts wire format to an SDK security group.
 func FromDevSecurityGroup(wire *DevSecurityGroup, workspace string) *apiv1.SecurityGroup {
 	if wire == nil {
 		return nil
 	}
-	return &apiv1.SecurityGroup{
+	out := &apiv1.SecurityGroup{
 		TypeMeta: apiv1.TypeMeta{
 			APIVersion: apiv1.APIVersion,
 			Kind:       apiv1.KindSecurityGroup,
 		},
 		Metadata: devMetadataFromWire(wire.Metadata, workspace),
-		Spec:     fromDevSecurityGroupSpec(wire.Spec),
-		Status:   fromDevSecurityGroupStatus(wire.Status),
-	}
-}
-
-func fromDevSecurityGroupSpec(s DevSecurityGroupSpec) apiv1.SecurityGroupSpec {
-	out := apiv1.SecurityGroupSpec{
-		SecurityGroup: apiv1.ResourceRef{
-			Name:          s.SecurityGroup.Name,
-			SystemCatalog: s.SecurityGroup.SystemCatalog,
+		Spec:     apiv1.SecurityGroupSpec{Type: wire.Spec.Type},
+		Status: apiv1.SecurityGroupStatus{
+			Status: wire.Status.Status,
+			Reason: wire.Status.Reason,
+			Action: wire.Status.Action,
 		},
-		Type: s.Type,
 	}
-	if len(s.IPRules) > 0 {
-		out.IPRules = make([]apiv1.IpRule, len(s.IPRules))
-		for i, r := range s.IPRules {
-			out.IPRules[i] = apiv1.IpRule{
-				SourceCIDR:  r.SourceCIDR,
-				Application: r.Application,
-				Action:      r.Action,
-			}
-		}
+	for _, r := range wire.Spec.Rules {
+		out.Spec.Rules = append(out.Spec.Rules, apiv1.Rule{
+			SourceCIDR:      r.SourceCIDR,
+			Application:     r.Application,
+			ApplicationPort: r.ApplicationPort,
+			Protocol:        r.Protocol,
+			Action:          r.Action,
+		})
 	}
-	if len(s.PortForwardRules) > 0 {
-		out.PortForwardRules = make([]apiv1.PortForwardRule, len(s.PortForwardRules))
-		for i, r := range s.PortForwardRules {
-			out.PortForwardRules[i] = apiv1.PortForwardRule{
-				SourceCIDR:      r.SourceCIDR,
-				Application:     r.Application,
-				ApplicationPort: r.ApplicationPort,
-				Protocol:        r.Protocol,
-			}
-		}
-	}
-	if len(s.Rules) > 0 {
-		out.Rules = make([]apiv1.Rule, len(s.Rules))
-		for i, r := range s.Rules {
-			out.Rules[i] = apiv1.Rule{
-				SourceCIDR:      r.SourceCIDR,
-				Application:     r.Application,
-				ApplicationPort: r.ApplicationPort,
-				Protocol:        r.Protocol,
-				Action:          r.Action,
-			}
-		}
-	}
-	if s.Sharing != nil {
-		out.Sharing = fromDevSharing(*s.Sharing)
+	if wire.Spec.Sharing != nil {
+		out.Spec.Sharing = fromDevSharing(*wire.Spec.Sharing)
 	}
 	return out
 }
 
-func fromDevSecurityGroupStatus(s DevSecurityGroupStatus) apiv1.SecurityGroupStatus {
-	return apiv1.SecurityGroupStatus{
-		Status: s.Status,
-		Reason: s.Reason,
-		Action: s.Action,
-	}
-}
-
-// FromDevSecurityGroupList converts a wire list to SDK security group list.
+// FromDevSecurityGroupList converts a wire list to an SDK security group list.
 func FromDevSecurityGroupList(wire *DevSecurityGroupList, workspace string) *apiv1.SecurityGroupList {
-	if wire == nil {
-		return &apiv1.SecurityGroupList{
-			TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: apiv1.KindSecurityGroup + "List"},
-		}
-	}
 	out := &apiv1.SecurityGroupList{
-		TypeMeta: apiv1.TypeMeta{
-			APIVersion: apiv1.APIVersion,
-			Kind:       apiv1.KindSecurityGroup + "List",
-		},
+		TypeMeta: apiv1.TypeMeta{APIVersion: apiv1.APIVersion, Kind: DevSecurityGroupListKind},
+		Items:    make([]apiv1.SecurityGroup, 0),
+	}
+	if wire == nil {
+		return out
 	}
 	out.Metadata.Continue = devListContinue(wire.Metadata, len(wire.Items))
 	for i := range wire.Items {

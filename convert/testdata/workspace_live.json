@@ -1,0 +1,17 @@
+{
+  "apiVersion": "paas.envmgmt.io/v1",
+  "kind": "Workspace",
+  "metadata": {
+    "name": "paas-workspace",
+    "project": "system-catalog",
+    "id": "x1",
+    "projectID": "x2",
+    "createdAt": "2026-10-29T10:43:57.510929Z",
+    "modifiedAt": "2026-10-29T10:43:57.510929Z",
+    "displayName": "Team A",
+    "description": "shared workspace",
+    "labels": {
+      "team": "a"
+    }
+  }
+}

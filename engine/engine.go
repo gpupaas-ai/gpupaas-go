@@ -30,7 +30,7 @@ func (e *Engine) Apply(ctx context.Context, obj runtime.Object, opts validation.
 
 // Get retrieves an object by scope and name.
 func (e *Engine) Get(ctx context.Context, gvk runtime.GroupVersionKind, project, workspace, name string) (runtime.Object, error) {
-	if validation.RequiresProject(gvk.Kind) && project == "" {
+	if project == "" {
 		return nil, fmt.Errorf("project is required")
 	}
 	if name == "" {
@@ -41,7 +41,7 @@ func (e *Engine) Get(ctx context.Context, gvk runtime.GroupVersionKind, project,
 
 // List returns objects matching gvk and list options.
 func (e *Engine) List(ctx context.Context, gvk runtime.GroupVersionKind, opts backend.ListOptions) ([]runtime.Object, error) {
-	if validation.RequiresProject(gvk.Kind) && opts.Project == "" {
+	if opts.Project == "" {
 		return nil, fmt.Errorf("project is required")
 	}
 	return e.backend.List(ctx, gvk, opts)
@@ -52,7 +52,7 @@ func (e *Engine) Delete(ctx context.Context, gvk runtime.GroupVersionKind, proje
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if validation.RequiresProject(gvk.Kind) && project == "" {
+	if project == "" {
 		return fmt.Errorf("project is required")
 	}
 	return e.backend.Delete(ctx, gvk, project, workspace, name)

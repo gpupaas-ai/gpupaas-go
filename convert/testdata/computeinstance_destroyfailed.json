@@ -1,0 +1,148 @@
+{
+ "apiVersion": "paas.envmgmt.io/v1",
+ "kind": "ComputeInstance",
+ "metadata": {
+  "name": "tf-e2e-vm-1",
+  "description": "terraform provider e2e test",
+  "labels": {
+   "paas.envmgmt.io/compute_type": "vm",
+   "paas.envmgmt.io/inventory": "vm",
+   "paas.envmgmt.io/inventory.config": "[\n  {\n      \"type\": \"match\",\n      \"keyInVariable\": \"Device Tags\",\n      \"keyInDevice\": \"tags\"\n  },\n  {\n      \"type\": \"capacity\",\n      \"keyInVariable\": \"Guest CPU Count\",\n      \"keyInCapacity\": \"requiredCPU\"\n  },\n  {\n      \"type\": \"capacity\",\n      \"keyInVariable\": \"Guest Memory Size\",\n      \"keyInCapacity\": \"requiredMemoryMB\"\n  },\n  {\n    \"type\": \"exclude\",\n    \"keyInVariable\": \"Exclude Hosts\",\n    \"keyInDevice\": \"hostname\"\n  }\n]",
+   "publishstatus": "failed"
+  },
+  "id": "01a13a7c-e2cf-7515-ac71-2d24f6deb2d5",
+  "modifiedAt": "2026-10-14T13:08:00.847334Z",
+  "projectID": "wg29ek0",
+  "createdAt": "2026-10-14T12:57:05.487328Z",
+  "createdBy": {
+   "username": "user@example.com"
+  },
+  "workspace": "tf-e2e-ws",
+  "workspaceID": "01a13a72-9d2f-755b-bf3c-7e6490e5cc93"
+ },
+ "spec": {
+  "computeProfile": {
+   "name": "anant-vm-provisioning",
+   "systemCatalog": true
+  },
+  "variables": [
+   {
+    "name": "Guest CPU Count",
+    "valueType": "text",
+    "value": "1"
+   },
+   {
+    "name": "Guest Memory Size",
+    "valueType": "text",
+    "value": "2048"
+   },
+   {
+    "name": "Exclude Hosts",
+    "valueType": "text",
+    "value": "anant-host-vm-2"
+   }
+  ],
+  "computeType": "vm",
+  "sharing": {
+   "shareMode": "None"
+  },
+  "datacenter": {
+   "name": "anant-mdc-bcm-test",
+   "exposed": true
+  },
+  "environmentTemplate": {
+   "name": "system-vmaas-vm-onboarding",
+   "version": "v3.1.40-anant"
+  }
+ },
+ "status": {
+  "status": "destroyfailed",
+  "reason": "activity failed: group.res-vm-onboarding.custom.vmaas-vm-onboarding: activity failed: group.res-vm-onboarding.custom.vmaas-vm-onboarding: function: failed: Failed to deploy",
+  "output": {
+   "res-vm-onboarding": {
+    "tasks": {
+     "vmaas-vm-onboarding": {}
+    }
+   }
+  },
+  "action": "destroy",
+  "actions": [
+   {
+    "name": "start",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   },
+   {
+    "name": "stop",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   },
+   {
+    "name": "reboot",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   },
+   {
+    "name": "migrate",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "workflowStatus": {
+   "resources": [
+    {
+     "name": "res-vm-onboarding",
+     "template": "res-vm-onboarding",
+     "userMessage": "VM Onboarding Failed",
+     "errors": [
+      {
+       "activity": "group.res-vm-onboarding.custom.vmaas-vm-onboarding",
+       "raw": "activity failed: group.res-vm-onboarding.custom.vmaas-vm-onboarding: function: failed: Failed to deploy"
+      }
+     ]
+    }
+   ]
+  },
+  "environment": {}
+ }
+}

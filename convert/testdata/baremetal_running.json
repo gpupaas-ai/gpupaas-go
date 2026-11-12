@@ -1,0 +1,30 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "BareMetal",
+  "metadata": {
+    "name": "bmaas-ironic-demo-079",
+    "project": "system-catalog"
+  },
+  "spec": {
+    "type": "bmaas-ironic-demo",
+    "sshKey": "bmaas-ironic-sshkey-demo",
+    "sharing": {
+      "shareMode": "None"
+    },
+    "datacenter": "ironic-scale-dc-demo",
+    "userData": "<redacted>",
+    "image": "bmaas-ironic-img-demo",
+    "gpuName": "custom",
+    "computeInstanceId": "01a12029-e421-7379-aa0a-4f52729404f0",
+    "provisionerType": "non_bcm"
+  },
+  "status": {
+    "status": "running",
+    "reason": "Instance bmaas-ironic-demo-079 is running.",
+    "action": "deploy",
+    "output": {
+      "hostName": "node-1-demo",
+      "userName": "ubuntu"
+    }
+  }
+}

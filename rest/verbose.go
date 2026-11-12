@@ -11,7 +11,7 @@ import (
 
 func redactHeader(key, value string) (string, bool) {
 	switch strings.ToLower(key) {
-	case "x-api-key", "x-rafay-api-keyid", "authorization":
+	case "x-api-key", "x-rafay-api-keyid", "authorization", "proxy-authorization", "cookie", "set-cookie":
 		return key + ": ***", true
 	default:
 		return key + ": " + value, false
@@ -43,7 +43,8 @@ func (c *Client) logResponse(resp *http.Response, respBody []byte) {
 	fmt.Fprintf(out, "<<< %s %s\n", resp.Status, resp.Request.URL.String())
 	for k, vals := range resp.Header {
 		for _, v := range vals {
-			fmt.Fprintf(out, "%s: %s\n", k, v)
+			line, _ := redactHeader(k, v)
+			fmt.Fprintln(out, line)
 		}
 	}
 	if len(respBody) > 0 {
@@ -59,12 +60,68 @@ func (c *Client) logWriter() io.Writer {
 	return os.Stderr
 }
 
+// secretKey reports whether the value of a JSON key must not reach a log: passwords, tokens, keys and
+// the user data of an instance.
+func secretKey(k string) bool {
+	k = strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(k))
+	switch k {
+	case "userdata", "privatekey", "accesskey", "secretkey", "apikey":
+		return true
+	}
+	return strings.Contains(k, "password") || strings.Contains(k, "token") || strings.Contains(k, "secret")
+}
+
+// nonEmpty reports whether a decoded JSON value carries anything worth hiding.
+func nonEmpty(v interface{}) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case string:
+		return t != ""
+	case []interface{}:
+		return len(t) > 0
+	case map[string]interface{}:
+		return len(t) > 0
+	}
+	return true
+}
+
+// redact returns v with the value of every secret key replaced, whatever its type (a string, a list of strings, an
+// object), and the "value" of a name/value pair whose name is secret, such as {"name":"DB_PASSWORD","value":"..."}.
+func redact(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		pairSecret := false
+		for _, label := range []string{"name", "key"} {
+			if s, ok := t[label].(string); ok && secretKey(s) {
+				pairSecret = true
+			}
+		}
+		for k, val := range t {
+			if (secretKey(k) || (pairSecret && strings.EqualFold(k, "value"))) && nonEmpty(val) {
+				out[k] = "***"
+				continue
+			}
+			out[k] = redact(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, val := range t {
+			out[i] = redact(val)
+		}
+		return out
+	}
+	return v
+}
+
 func formatBody(body []byte) string {
 	var v interface{}
 	if err := json.Unmarshal(body, &v); err != nil {
 		return string(body)
 	}
-	pretty, err := json.MarshalIndent(v, "", "  ")
+	pretty, err := json.MarshalIndent(redact(v), "", "  ")
 	if err != nil {
 		return string(body)
 	}
