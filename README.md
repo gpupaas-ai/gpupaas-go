@@ -178,14 +178,9 @@ go run ./examples/delete_yaml ./cluster.yaml demo
 
 API group `gpupaas.ai/v1alpha1` may change until a beta or stable release.
 
-## Adding a resource from swagger
+## Contributing
 
-When extending the SDK with a new resource from a Swagger / OpenAPI document,
-follow [`specs/add-resource-from-swagger/SKILL.md`](specs/add-resource-from-swagger/SKILL.md).
-It documents the apis/v1alpha1 → convert → clientset → backend/remote pipeline,
-backward-compatibility rules (never silently remove fields, methods, or
-kinds — always confirm with the user first), the README updates required for
-every new resource, and the `go fmt / vet / test / build` verification gate.
+Adding or changing a kind (types, wire mapping, client, waits, mock, tests) and the rules to follow: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Appendix: Resource reference
 
