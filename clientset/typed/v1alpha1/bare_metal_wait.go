@@ -110,7 +110,10 @@ func BareMetalActionDone(verb string) func(*apiv1.BareMetal) (bool, error) {
 			started = true
 			repeated = normalizeBareMetalVerb(obj.Status.Action) == want
 		}
-		if obj.Status.Phase() == apiv1.BareMetalPhaseInProgress {
+		// Only an in-progress state that carries this action counts as the action running. An
+		// earlier run (a deploy, another power action) can still be in progress right after the
+		// request, and its later failure is not this action's.
+		if obj.Status.Phase() == apiv1.BareMetalPhaseInProgress && normalizeBareMetalVerb(obj.Status.Action) == want {
 			sawActive = true
 		}
 		// A failure counts as this action's only when it carries this action, or after the action

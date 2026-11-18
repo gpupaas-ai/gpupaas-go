@@ -110,7 +110,10 @@ func VMInstanceActionDone(verb string) func(*apiv1.VMInstance) (bool, error) {
 			started = true
 			repeated = normalizeVMInstanceVerb(obj.Status.Action) == want
 		}
-		if obj.Status.Phase() == apiv1.VMPhaseInProgress {
+		// Only an in-progress state that carries this action counts as the action running. An
+		// earlier run (a deploy, another power action) can still be in progress right after the
+		// request, and its later failure is not this action's.
+		if obj.Status.Phase() == apiv1.VMPhaseInProgress && normalizeVMInstanceVerb(obj.Status.Action) == want {
 			sawActive = true
 		}
 		// A failure counts as this action's only when it carries this action, or after the action

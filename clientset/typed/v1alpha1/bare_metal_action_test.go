@@ -127,3 +127,21 @@ func TestBareMetalActionDoneFailsWhenTheInstanceFails(t *testing.T) {
 		t.Fatal("a failed instance must fail the action")
 	}
 }
+
+// A power action requested while the machine is still deploying: the deploy is in progress, then it
+// fails. That failure is the deploy's, not the action's, so the wait must not report it.
+func TestBareMetalActionDoneIgnoresAnEarlierRunInProgress(t *testing.T) {
+	done := typed.BareMetalActionDone("Power cycle")
+	for i, p := range []*apiv1.BareMetal{bm("in_progress", "deploy"), bm("in_progress", "deploy"), bm("failed", "deploy")} {
+		if ok, err := done(p); ok || err != nil {
+			t.Fatalf("poll %d: got (%v, %v), want (false, nil)", i, ok, err)
+		}
+	}
+	// The action then runs and fails: that one counts.
+	if ok, err := done(bm("in_progress", "Power cycle")); ok || err != nil {
+		t.Fatalf("got (%v, %v) while the action runs", ok, err)
+	}
+	if _, err := done(bm("failed", "Power cycle")); err == nil {
+		t.Fatal("a failure of the running action must be reported")
+	}
+}

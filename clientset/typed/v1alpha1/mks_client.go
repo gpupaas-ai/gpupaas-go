@@ -66,6 +66,9 @@ func (c *mksClusterClient) Create(ctx context.Context, obj *apiv1.MKSCluster, _ 
 	if obj == nil {
 		return nil, &gpupaas.APIError{StatusCode: 400, Message: "mks cluster is nil"}
 	}
+	// Serialize the check-then-create per name, like every other kind: two creates of one name in this
+	// process must not both see 404 and both POST. fail-on-exists covers other processes.
+	defer lockCreate("mks", c.project, c.workspace, obj.Metadata.Name)()
 	if _, err := c.Get(ctx, obj.Metadata.Name, gpupaas.GetOptions{}); err == nil {
 		return nil, &gpupaas.APIError{StatusCode: 409, Message: fmt.Sprintf("mks cluster %q already exists", obj.Metadata.Name)}
 	} else if !gpupaas.IsNotFound(err) {

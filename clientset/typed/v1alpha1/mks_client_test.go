@@ -796,3 +796,32 @@ func TestMKSSpecSatisfiedComparesTheBoundsOfAnAutomaticPool(t *testing.T) {
 		t.Error("manual pools are compared by count and mode")
 	}
 }
+
+// Concurrent creates of one cluster name in a process: with a controller that ignores fail-on-exists, only
+// the in-process lock keeps the second create from overwriting the first cluster.
+func TestMKSConcurrentCreatesOfOneNameAllButOneConflict(t *testing.T) {
+	_, cs := newMKSFixture(t, clusterapi.Options{IgnoreFailOnExists: true})
+	clusters := cs.V1alpha1().MKSClusters(testProject)
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			_, err := clusters.Create(context.Background(), oneNodeCluster("race"), gpupaas.CreateOptions{})
+			errs <- err
+		}()
+	}
+	won, conflicts := 0, 0
+	for i := 0; i < n; i++ {
+		switch err := <-errs; {
+		case err == nil:
+			won++
+		case gpupaas.IsConflict(err):
+			conflicts++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if won != 1 || conflicts != n-1 {
+		t.Fatalf("won=%d conflicts=%d, want 1 and %d", won, conflicts, n-1)
+	}
+}

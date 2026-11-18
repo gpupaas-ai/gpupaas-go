@@ -127,3 +127,20 @@ func TestVMInstanceActionDoneFailsWhenTheInstanceFails(t *testing.T) {
 		t.Fatal("a failed instance must fail the action")
 	}
 }
+
+// An action requested while the instance is still deploying: the deploy is in progress, then it fails.
+// That failure is the deploy's, not the action's, so the wait must not report it.
+func TestVMInstanceActionDoneIgnoresAnEarlierRunInProgress(t *testing.T) {
+	done := typed.VMInstanceActionDone("reboot")
+	for i, p := range []*apiv1.VMInstance{vmi("in_progress", "deploy"), vmi("in_progress", "deploy"), vmi("failed", "deploy")} {
+		if ok, err := done(p); ok || err != nil {
+			t.Fatalf("poll %d: got (%v, %v), want (false, nil)", i, ok, err)
+		}
+	}
+	if ok, err := done(vmi("in_progress", "reboot")); ok || err != nil {
+		t.Fatalf("got (%v, %v) while the action runs", ok, err)
+	}
+	if _, err := done(vmi("failed", "reboot")); err == nil {
+		t.Fatal("a failure of the running action must be reported")
+	}
+}
