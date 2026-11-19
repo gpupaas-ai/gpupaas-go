@@ -126,3 +126,67 @@ func devListContinue(meta PaaSListMetadata, itemCount int) string {
 	}
 	return ""
 }
+
+// DevScope identifies project- or workspace-scoped dev API paths.
+type DevScope struct {
+	Project   string
+	Workspace string // empty => project scope
+}
+
+// DevResourceRef is the wire format for a resource reference.
+type DevResourceRef struct {
+	Name          string `json:"name"`
+	SystemCatalog bool   `json:"systemCatalog,omitempty"`
+}
+
+// DevMetadata is resource metadata on dev.envmgmt.io.
+type DevMetadata struct {
+	Name        string            `json:"name"`
+	Project     string            `json:"project,omitempty"`
+	Workspace   string            `json:"workspace,omitempty"`
+	DisplayName string            `json:"displayName,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// CreatedBy / ModifiedBy are set by the backend; clients should not write them.
+	CreatedBy  *DevUserMeta `json:"createdBy,omitempty"`
+	ModifiedBy *DevUserMeta `json:"modifiedBy,omitempty"`
+}
+
+// DevUserMeta is the wire representation of a user reference.
+type DevUserMeta struct {
+	Username  string              `json:"username,omitempty"`
+	IsSSOUser bool                `json:"isSSOUser,omitempty"`
+	Options   *DevUserMetaOptions `json:"options,omitempty"`
+}
+
+// DevUserMetaOptions is the wire representation of user options.
+type DevUserMetaOptions struct {
+	Description string                      `json:"description,omitempty"`
+	Required    bool                        `json:"required,omitempty"`
+	Override    *DevUserMetaOverrideOptions `json:"override,omitempty"`
+}
+
+// DevUserMetaOverrideOptions is the wire representation of user override options.
+type DevUserMetaOverrideOptions struct {
+	Type             string   `json:"type,omitempty"`
+	RestrictedValues []string `json:"restrictedValues,omitempty"`
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// PaaSListMetadata is list metadata on paas.envmgmt.io and dev.envmgmt.io list responses.
+type PaaSListMetadata struct {
+	Count  int64 `json:"count,omitempty"`
+	Limit  int64 `json:"limit,omitempty"`
+	Offset int64 `json:"offset,omitempty"`
+}

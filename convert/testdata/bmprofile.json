@@ -1,0 +1,44 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "BmProfile",
+  "metadata": {
+    "name": "bmaas-ironic-demo",
+    "labels": {
+      "paas.envmgmt.io/compute_type": "baremetal",
+      "paas.envmgmt.io/inventory": "baremetal"
+    },
+    "project": "system-catalog"
+  },
+  "spec": {
+    "provisionerType": "non_bcm",
+    "image": [
+      "bmaas-ironic-img-demo"
+    ],
+    "imageDefault": "bmaas-ironic-img-demo",
+    "datacenter": [
+      "ironic-scale-dc-demo"
+    ],
+    "assignPublicIp": "CustomerSelectable",
+    "inventoryConfig": [
+      {
+        "key": "server_type",
+        "value": "bmaas-ironic-demo"
+      }
+    ],
+    "templateVersion": "v3.1.41",
+    "sharing": {
+      "shareMode": "None"
+    },
+    "gpuName": "custom",
+    "useCase": "bare_metal",
+    "inline_shared_filesystem_creation": "Deny"
+  },
+  "status": {
+    "status": "success",
+    "globalSettings": {
+      "agents": [
+        "bmaas-ironic-agent-demo"
+      ]
+    }
+  }
+}

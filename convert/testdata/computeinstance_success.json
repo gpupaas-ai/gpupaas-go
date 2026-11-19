@@ -1,0 +1,156 @@
+{
+ "apiVersion": "paas.envmgmt.io/v1",
+ "kind": "ComputeInstance",
+ "metadata": {
+  "name": "tf-e2e-vm-1",
+  "description": "terraform provider e2e test",
+  "labels": {
+   "paas.envmgmt.io/compute_type": "vm",
+   "paas.envmgmt.io/inventory": "vm",
+   "paas.envmgmt.io/inventory.config": "[\n  {\n      \"type\": \"match\",\n      \"keyInVariable\": \"Device Tags\",\n      \"keyInDevice\": \"tags\"\n  },\n  {\n      \"type\": \"capacity\",\n      \"keyInVariable\": \"Guest CPU Count\",\n      \"keyInCapacity\": \"requiredCPU\"\n  },\n  {\n      \"type\": \"capacity\",\n      \"keyInVariable\": \"Guest Memory Size\",\n      \"keyInCapacity\": \"requiredMemoryMB\"\n  },\n  {\n    \"type\": \"exclude\",\n    \"keyInVariable\": \"Exclude Hosts\",\n    \"keyInDevice\": \"hostname\"\n  }\n]"
+  },
+  "id": "01a13a8b-c547-7b4f-867f-195fa588e754",
+  "modifiedAt": "2026-10-14T13:20:41.125269Z",
+  "projectID": "wg29ek0",
+  "createdAt": "2026-10-14T13:13:20.967735Z",
+  "createdBy": {
+   "username": "user@example.com"
+  },
+  "workspace": "tf-e2e-ws",
+  "workspaceID": "01a13a72-9d2f-755b-bf3c-7e6490e5cc93"
+ },
+ "spec": {
+  "computeProfile": {
+   "name": "anant-vm-provisioning",
+   "systemCatalog": true
+  },
+  "variables": [
+   {
+    "name": "Guest CPU Count",
+    "valueType": "text",
+    "value": "1"
+   },
+   {
+    "name": "Guest Memory Size",
+    "valueType": "text",
+    "value": "2048"
+   }
+  ],
+  "computeType": "vm",
+  "sharing": {
+   "shareMode": "None"
+  },
+  "datacenter": {
+   "name": "anant-mdc-bcm-test",
+   "exposed": true
+  },
+  "environmentTemplate": {
+   "name": "system-vmaas-vm-onboarding",
+   "version": "v3.1.40-anant"
+  }
+ },
+ "status": {
+  "status": "success",
+  "reason": "Compute allocation request completed successfully",
+  "output": {
+   "res-vm-onboarding": {
+    "tasks": {
+     "vmaas-vm-onboarding": {
+      "Hostname": "<redacted>",
+      "OSName": "<redacted>",
+      "Password": "<redacted>",
+      "Private IP": "<redacted>",
+      "Public IP": "<redacted>",
+      "ServerHost": "<redacted>",
+      "Username": "<redacted>",
+      "VM Boot Logs": "<redacted>"
+     }
+    }
+   }
+  },
+  "action": "publish",
+  "actions": [
+   {
+    "name": "start",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   },
+   {
+    "name": "stop",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   },
+   {
+    "name": "reboot",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   },
+   {
+    "name": "migrate",
+    "context": {
+     "data": {
+      "variables": [
+       {
+        "name": "action",
+        "valueType": "text",
+        "value": "## script begin ##\ndef eval(**ctx):\n  action_name = ctx[\"trigger\"][\"payload\"].get(\"action_name\")\n  if action_name:\n    return action_name\n  return ctx[\"trigger\"][\"payload\"].get(\"action\")\n## script end ##",
+        "options": {}
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "workflowStatus": {
+   "resources": [
+    {
+     "name": "res-vm-onboarding",
+     "template": "res-vm-onboarding",
+     "userMessage": "VM Onboarding Successful"
+    }
+   ]
+  },
+  "environment": {
+   "name": "tf-e2e-vm-1-3f4cc",
+   "id": "01M4X8RKBCSPMDGC8YJRNGBRRH"
+  },
+  "provisionedResource": {
+   "provisioner": "eaas",
+   "resourceId": "01M4X8RKBCSPMDGC8YJRNGBRRH",
+   "resourceName": "tf-e2e-vm-1-3f4cc",
+   "eaas": {
+    "triggerId": "01M4X8RKDJH4X7S1FSMAE5RNP7"
+   }
+  }
+ }
+}

@@ -21,8 +21,8 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("=== create MKS cluster %q (project-scoped) ===\n", cfg.Name)
-	cluster := mkscommon.SampleCluster(cfg.Project, cfg.Name)
+	fmt.Printf("=== create MKS cluster %q (project or workspace scope) ===\n", cfg.Name)
+	cluster := mkscommon.SampleCluster(cfg)
 
 	if memClient != nil {
 		created := mkscommon.ApplyMemory(ctx, memClient, cluster)

@@ -2,77 +2,260 @@ package v1alpha1
 
 import (
 	"context"
+	"time"
 
 	gpupaas "github.com/gpupaas-ai/gpupaas-go"
 	apiv1 "github.com/gpupaas-ai/gpupaas-go/apis/v1alpha1"
 )
 
-// ProjectInterface manages Project resources.
-type ProjectInterface interface {
-	Create(ctx context.Context, obj *apiv1.Project, opts gpupaas.CreateOptions) (*apiv1.Project, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.Project, error)
-	Update(ctx context.Context, obj *apiv1.Project, opts gpupaas.UpdateOptions) (*apiv1.Project, error)
+// BareMetalInterface manages first-class bare-metal instances (dev.envmgmt.io) at project or
+// workspace scope. This is the instance a developer asks for from a BmProfile (SKU).
+//
+// Create stores a new instance and fails with a 409 if the name is taken; Update applies a changed
+// spec to an existing one. Both return as soon as the backend accepts the request, and the
+// platform provisions the machine asynchronously (minutes): poll Get, or use WaitForBareMetal.
+type BareMetalInterface interface {
+	Create(ctx context.Context, obj *apiv1.BareMetal, opts gpupaas.CreateOptions) (*apiv1.BareMetal, error)
+	Update(ctx context.Context, obj *apiv1.BareMetal, opts gpupaas.UpdateOptions) (*apiv1.BareMetal, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BareMetal, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.BareMetalList, error)
+	// Delete starts teardown; the instance stays visible (deleting) until it is gone.
 	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.ProjectList, error)
+	// Action runs a lifecycle verb (start, stop, reboot, "Reinstall OS", ...). payload may be nil.
+	// It returns once the backend accepts the action; poll Get for the result.
+	Action(ctx context.Context, name, verb string, payload map[string]any) (*apiv1.BareMetal, error)
 }
 
-// WorkspaceInterface manages Workspace resources within a project.
+// VMInstanceInterface manages first-class virtual machines (dev.envmgmt.io) at project or workspace
+// scope. This is the VM a developer asks for from a VMProfile (SKU): spec.type names the SKU, the size
+// matches one of the SKU's presets, and fields are snake_case on the wire.
+//
+// Create stores a new VM and fails with a 409 if the name is taken; Update applies a changed spec to
+// an existing one. Both return as soon as the backend accepts the request, and the platform provisions
+// the VM asynchronously (minutes): poll Get, or use WaitForVMInstance.
+type VMInstanceInterface interface {
+	Create(ctx context.Context, obj *apiv1.VMInstance, opts gpupaas.CreateOptions) (*apiv1.VMInstance, error)
+	Update(ctx context.Context, obj *apiv1.VMInstance, opts gpupaas.UpdateOptions) (*apiv1.VMInstance, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.VMInstance, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.VMInstanceList, error)
+	// Delete starts teardown; the VM stays visible (deleting) until it is gone.
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+	// Action runs a lifecycle verb (start, stop, reboot, ...). payload may be nil. It returns once the
+	// backend accepts the action; poll Get for the result.
+	Action(ctx context.Context, name, verb string, payload map[string]any) (*apiv1.VMInstance, error)
+}
+
+// VMProfileInterface reads the VM SKUs of a project.
+type VMProfileInterface interface {
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.VMProfile, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.VMProfileList, error)
+}
+
+// BmProfileInterface reads the bare-metal SKUs of a project.
+type BmProfileInterface interface {
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BmProfile, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.BmProfileList, error)
+}
+
+// MKSClusterInterface manages first-class managed Kubernetes clusters (paas.k8smgmt.io/v3) at
+// project or workspace scope.
+//
+// Clusters are declarative. Create stores a new cluster and fails if the name is taken;
+// Update applies a changed spec (Kubernetes version, worker pools and their sizes) to an
+// existing one. Both return as soon as the backend accepts the request; poll Get (see
+// WaitForMKSCluster) until the cluster settles, because provisioning takes many minutes.
+type MKSClusterInterface interface {
+	Create(ctx context.Context, obj *apiv1.MKSCluster, opts gpupaas.CreateOptions) (*apiv1.MKSCluster, error)
+	Update(ctx context.Context, obj *apiv1.MKSCluster, opts gpupaas.UpdateOptions) (*apiv1.MKSCluster, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSCluster, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSClusterList, error)
+	// Delete starts teardown; the cluster stays visible (destroying) until it is gone.
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+	// Kubeconfig downloads the user kubeconfig of a running cluster (the console's "Download
+	// Kubeconfig"). It comes from the sentry service, keyed by the cluster's edge id, which the
+	// cluster only has once it is registered.
+	Kubeconfig(ctx context.Context, name string) ([]byte, error)
+
+	// The calls below are the dedicated day-2 routes of the API reference. Create and Update already
+	// cover most changes (they are declarative); these are the narrower alternatives. Each returns the
+	// cluster as the platform answers, which is usually still in the phase the operation started, so
+	// wait with WaitForMKSCluster. They take the cluster's name only and always address the project
+	// route: cluster names are unique per organization.
+
+	// AddNodePool adds one worker pool (POST .../clusters/{cluster}/nodepools). A pool that leaves
+	// assignPublicIp unset takes the value of the existing worker pools.
+	AddNodePool(ctx context.Context, cluster string, pool apiv1.MKSNodeGroup) (*apiv1.MKSCluster, error)
+	// RemoveNodePool removes a worker pool and its machines (DELETE .../clusters/{cluster}/nodepools/{pool}).
+	RemoveNodePool(ctx context.Context, cluster, pool string) (*apiv1.MKSCluster, error)
+	// Upgrade changes the Kubernetes version, the blueprint or the CNI (POST .../clusters/{cluster}/upgrade).
+	// Send only what changes. The version moves one minor at a time and never down.
+	Upgrade(ctx context.Context, cluster string, req apiv1.MKSUpgradeRequest) (*apiv1.MKSCluster, error)
+	// UpdateMetadata edits labels, annotations and tags without redeploying the cluster
+	// (PATCH .../clusters/{cluster}/metadata). It is refused only while the cluster is being deleted.
+	UpdateMetadata(ctx context.Context, cluster string, patch apiv1.MKSMetadataPatch) (*apiv1.MKSCluster, error)
+	// Redeploy starts provisioning again (POST .../clusters/{cluster}/redeploy). The platform allows it
+	// only from ERROR or DEGRADED.
+	Redeploy(ctx context.Context, cluster string) (*apiv1.MKSCluster, error)
+	// Status reads the status document (GET .../clusters/{cluster}/status): the declared pools joined with
+	// the nodes the platform reports, with their addresses and Kubernetes conditions.
+	Status(ctx context.Context, cluster string) (*apiv1.MKSClusterStatusView, error)
+	// AuditEvents lists the audit trail of the cluster, newest first by default.
+	AuditEvents(ctx context.Context, cluster string, filter MKSAuditEventFilter) (*apiv1.MKSAuditEventList, error)
+}
+
+// MKSAuditEventFilter selects audit events. Empty fields do not filter.
+type MKSAuditEventFilter struct {
+	// Action is exact, for example "cluster.upgrade" or "node.drain".
+	Action string
+	// Result is accepted, rejected, completed or failed.
+	Result string
+	// ResourceType is cluster, controlPlane, nodePool, node or sku.
+	ResourceType string
+	Actor        string
+	// From and To bound the event time, inclusive. The zero time leaves a side open.
+	From, To time.Time
+	// Limit is the page size (the platform caps it at 500); Offset is how many events to skip.
+	Limit, Offset int
+}
+
+// MKSClusterProfileInterface reads Kubernetes SKUs (cluster profiles) of a project.
+type MKSClusterProfileInterface interface {
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSClusterProfile, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSClusterProfileList, error)
+	// CreateOptions returns what the SKU allows for the control plane and the workers: SKUs, images,
+	// shapes and datacenters (GET .../clusterprofiles/{name}/createoptions).
+	CreateOptions(ctx context.Context, name string) (*apiv1.MKSCreateOptions, error)
+	// AvailableCapacity returns the capacity left for the SKU (GET .../clusterprofiles/{name}/availablecapacity).
+	// The response shape is not part of the API reference, so the document is returned as received.
+	AvailableCapacity(ctx context.Context, name string) (*apiv1.MKSAvailableCapacity, error)
+}
+
+// MKSMatchQuery selects what the matchmaker is asked about. Which fields a call needs is noted on
+// the method; unused fields are left out of the request.
+type MKSMatchQuery struct {
+	// Datacenters is required by every call but KubernetesVersions.
+	Datacenters []string
+	// SKUKinds is bmaas, vmaas or both.
+	SKUKinds []string
+	// ComputeTypes is cpu, gpu or custom, one or several. Custom counts as cpu and is sent as cpu.
+	ComputeTypes []string
+	// Images are image resource names (from AvailableOS), for AvailableSpecs, MatchSKUs and AvailableComputeSKUs.
+	Images []string
+	// CPU, RAMGb and StorageGb are the shape MatchSKUs looks for; GPUType is required there when
+	// ComputeTypes includes gpu, and GPUCount narrows it.
+	CPU, RAMGb, StorageGb int
+	GPUType               string
+	GPUCount              int
+}
+
+// MKSMatchmakerInterface asks the matchmaker what a datacenter offers. The calls are read-only and
+// drive the pickers of the console; they help to choose compute SKUs, images and Kubernetes
+// versions for a cluster or a Kubernetes SKU.
+type MKSMatchmakerInterface interface {
+	// KubernetesVersions lists the Kubernetes minors the controller offers, newest first.
+	KubernetesVersions(ctx context.Context) (*apiv1.MKSKubernetesVersions, error)
+	// AvailableOS lists operating systems and their versions. Needs Datacenters, SKUKinds and ComputeTypes.
+	AvailableOS(ctx context.Context, q MKSMatchQuery) (*apiv1.MKSAvailableOS, error)
+	// AvailableImages lists the images the matching SKUs offer. Needs Datacenters, SKUKinds and ComputeTypes.
+	AvailableImages(ctx context.Context, q MKSMatchQuery) ([]apiv1.MKSImageOption, error)
+	// AvailableSpecs lists the machine shapes offered with the images. Also needs Images.
+	AvailableSpecs(ctx context.Context, q MKSMatchQuery) ([]apiv1.MKSSpecOption, error)
+	// MatchSKUs lists the compute SKUs that satisfy a shape: CPU, RAMGb, StorageGb, and GPUType for gpu.
+	MatchSKUs(ctx context.Context, q MKSMatchQuery) ([]apiv1.MKSSKURef, error)
+	// AvailableComputeSKUs lists the selectable compute SKUs with their shapes. Needs Datacenters,
+	// SKUKinds, ComputeTypes and Images.
+	AvailableComputeSKUs(ctx context.Context, q MKSMatchQuery) ([]apiv1.MKSInstanceType, error)
+}
+
+// MKSNodeInterface lists the nodes a cluster has registered.
+type MKSNodeInterface interface {
+	// ListForCluster returns the nodes of the named cluster.
+	ListForCluster(ctx context.Context, cluster string) (*apiv1.MKSNodeList, error)
+	// CordonPool marks every node of a worker pool unschedulable.
+	CordonPool(ctx context.Context, cluster, pool string) (*MKSPoolOperationResult, error)
+	// UncordonPool makes the nodes of a worker pool schedulable again.
+	UncordonPool(ctx context.Context, cluster, pool string) (*MKSPoolOperationResult, error)
+	// DrainPool evicts the workloads from every node of a worker pool.
+	DrainPool(ctx context.Context, cluster, pool string, opts MKSDrainOptions) (*MKSPoolOperationResult, error)
+
+	// The calls below act on one node, named by its hostname (the Kubernetes node name).
+
+	// CordonNode marks a node unschedulable.
+	CordonNode(ctx context.Context, cluster, hostname string) error
+	// UncordonNode makes a node schedulable again.
+	UncordonNode(ctx context.Context, cluster, hostname string) error
+	// DrainNode evicts the workloads of a node. The platform takes no drain options for one node.
+	DrainNode(ctx context.Context, cluster, hostname string) error
+	// DeleteNode removes a node from the cluster.
+	DeleteNode(ctx context.Context, cluster, hostname string) error
+	// UpdateNodeMetadata sets and removes labels and annotations on the live Kubernetes node.
+	UpdateNodeMetadata(ctx context.Context, cluster, hostname string, patch MKSNodeMetadataPatch) error
+	// UpdateNodeTaints replaces all taints of a node; an empty list clears them.
+	UpdateNodeTaints(ctx context.Context, cluster, hostname string, taints []apiv1.MKSTaint) error
+}
+
+// MKSNodeMetadataPatch is a per-key change of a node's labels and annotations. A key in both the set and the
+// remove list of one kind is refused by the platform.
+type MKSNodeMetadataPatch struct {
+	SetLabels         map[string]string
+	RemoveLabels      []string
+	SetAnnotations    map[string]string
+	RemoveAnnotations []string
+}
+
+// MKSPoolOperationResult is the platform's answer to a pool operation: how many nodes it tried and
+// what each one said. The per-node flag is not reliable on its own: the platform has answered
+// "succeeded" for a node whose message was a kubectl connection error, so callers should read the messages.
+type MKSPoolOperationResult struct {
+	ClusterName string              `json:"clusterName"`
+	NodePool    string              `json:"nodePool"`
+	Action      string              `json:"action"`
+	Requested   int                 `json:"requested"`
+	Succeeded   int                 `json:"succeeded"`
+	Failed      int                 `json:"failed"`
+	Results     []MKSPoolNodeResult `json:"results"`
+}
+
+// MKSPoolNodeResult is the outcome of a pool operation on one node.
+type MKSPoolNodeResult struct {
+	Hostname  string `json:"hostname"`
+	Succeeded bool   `json:"succeeded"`
+	Message   string `json:"message"`
+}
+
+// MKSDrainOptions are the optional settings of a pool drain. A nil field is left out of the
+// request, so the platform's own default applies.
+type MKSDrainOptions struct {
+	Force              *bool
+	IgnoreDaemonsets   *bool
+	GracePeriodSeconds *int
+	DeleteEmptyDirData *bool
+}
+
+// WorkspaceInterface manages the workspaces of one project and hands out the clients of the resources
+// that live in a workspace.
+//
+// Create stores a new workspace and fails with a 409 if the name is taken; Update applies changed
+// metadata or spec to an existing one. Delete fails while the workspace still holds resources.
 type WorkspaceInterface interface {
 	Create(ctx context.Context, obj *apiv1.Workspace, opts gpupaas.CreateOptions) (*apiv1.Workspace, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.Workspace, error)
 	Update(ctx context.Context, obj *apiv1.Workspace, opts gpupaas.UpdateOptions) (*apiv1.Workspace, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.Workspace, error)
 	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.WorkspaceList, error)
-	Collaborators(workspace string) WorkspaceCollaboratorInterface
-	VirtualMachines(workspace string) VirtualMachineInterface
-	Storages(workspace string) StorageInterface
-	SecurityGroups(workspace string) SecurityGroupInterface
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+
+	MKSClusters(workspace string) MKSClusterInterface
+	BareMetals(workspace string) BareMetalInterface
+	VMInstances(workspace string) VMInstanceInterface
+	ComputeInstances(workspace string) ComputeInstanceInterface
 	SshKeys(workspace string) SshKeyInterface
+	SecurityGroups(workspace string) SecurityGroupInterface
+	Storages(workspace string) StorageInterface
 }
 
-// WorkspaceCollaboratorInterface manages collaborators on a workspace.
-type WorkspaceCollaboratorInterface interface {
-	Create(ctx context.Context, obj *apiv1.WorkspaceCollaborator, opts gpupaas.CreateOptions) (*apiv1.WorkspaceCollaborator, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.WorkspaceCollaborator, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.WorkspaceCollaboratorList, error)
-}
-
-// VirtualMachineInterface manages virtual machines at project or workspace scope.
-type VirtualMachineInterface interface {
-	Create(ctx context.Context, obj *apiv1.VirtualMachine, opts gpupaas.CreateOptions) (*apiv1.VirtualMachine, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.VirtualMachine, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.VirtualMachineList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-	GetStatus(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.VirtualMachine, error)
-	Start(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
-	Stop(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
-	// Reboot executes the "reboot" action on a virtual machine.
-	Reboot(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
-	// Action executes an arbitrary action verb (e.g. "start", "stop", "reboot",
-	// or backend-specific verbs) on a virtual machine. It is the generic form
-	// of Start / Stop / Reboot for callers that need verbs not exposed as
-	// dedicated methods.
-	Action(ctx context.Context, name, action string, opts gpupaas.ActionOptions) (*apiv1.VirtualMachine, error)
-}
-
-// StorageInterface manages storage resources at project or workspace scope.
-type StorageInterface interface {
-	Create(ctx context.Context, obj *apiv1.Storage, opts gpupaas.CreateOptions) (*apiv1.Storage, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.Storage, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.StorageList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-}
-
-// SecurityGroupInterface manages security groups at project or workspace scope.
-type SecurityGroupInterface interface {
-	Create(ctx context.Context, obj *apiv1.SecurityGroup, opts gpupaas.CreateOptions) (*apiv1.SecurityGroup, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.SecurityGroup, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.SecurityGroupList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-}
-
-// SshKeyInterface manages SSH keys at project or workspace scope.
+// SshKeyInterface manages SSH keys at project or workspace scope. The platform has no update for a
+// key: create it, and delete it to replace it. Create stores a new key and fails with a 409 if the
+// name is taken.
 type SshKeyInterface interface {
 	Create(ctx context.Context, obj *apiv1.SshKey, opts gpupaas.CreateOptions) (*apiv1.SshKey, error)
 	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.SshKey, error)
@@ -80,86 +263,44 @@ type SshKeyInterface interface {
 	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
 }
 
-// BaremetalMachineInterface manages BaremetalMachine resources at project scope.
+// SecurityGroupInterface manages security groups at project or workspace scope. The platform has no
+// update for a group: create it, and delete it to replace it. Create stores a new group and fails
+// with a 409 if the name is taken.
+type SecurityGroupInterface interface {
+	Create(ctx context.Context, obj *apiv1.SecurityGroup, opts gpupaas.CreateOptions) (*apiv1.SecurityGroup, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.SecurityGroup, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.SecurityGroupList, error)
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+}
+
+// StorageInterface manages high-speed and object storage volumes at project or workspace scope (one Storage
+// kind; the profile in Spec.Type decides the family, and List can filter by ListOptions.ServiceType).
+// Create stores a new volume and fails with a 409 if the name is taken; Update applies a changed spec to an
+// existing one. Provisioning, update and delete are asynchronous: follow them with WaitForStorage.
+type StorageInterface interface {
+	Create(ctx context.Context, obj *apiv1.Storage, opts gpupaas.CreateOptions) (*apiv1.Storage, error)
+	Update(ctx context.Context, obj *apiv1.Storage, opts gpupaas.UpdateOptions) (*apiv1.Storage, error)
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.Storage, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.StorageList, error)
+	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+}
+
+// ComputeInstanceInterface reads ComputeInstance resources (paas.envmgmt.io), read-only.
 //
-// CRUD endpoints are project-only; baremetal machines do not have a workspace
-// scope. Sub-actions (PowerOn, PowerOff, Reboot, Provision, ReinstallOS,
-// CreateConsoleSession) return the updated resource where applicable, and
-// GetStatusInfo returns the free-form BaremetalMachineInfo payload.
-type BaremetalMachineInterface interface {
-	Create(ctx context.Context, obj *apiv1.BaremetalMachine, opts gpupaas.CreateOptions) (*apiv1.BaremetalMachine, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BaremetalMachine, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.BaremetalMachineList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
+// Every first-class VM, bare-metal machine and MKS cluster or node has a compute instance of the
+// same name behind it. The platform hides these instances from normal listings, so the client asks
+// for them explicitly (include_first_class=true). They hold what the first-class record does not:
+// the workflow error and the provisioning log of a failure, and the teardown that outlives the
+// record on delete. Provisioning itself is asynchronous; read the instance to follow it.
+type ComputeInstanceInterface interface {
+	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.ComputeInstance, error)
+	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.ComputeInstanceList, error)
 
-	// PowerOn requests the machine to be powered on.
-	PowerOn(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
-	// PowerOff requests the machine to be powered off.
-	PowerOff(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
-	// Reboot requests the machine to be rebooted.
-	Reboot(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
-	// Provision triggers a deploy of the machine with its current spec.
-	Provision(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
-	// ReinstallOS reimages the machine with the supplied image.
-	ReinstallOS(ctx context.Context, name string, image *apiv1.BaremetalImage, opts gpupaas.ActionOptions) (*apiv1.BaremetalMachine, error)
-	// CreateConsoleSession opens a short-lived SOL console session and returns
-	// a WebSocket URL for the caller to connect to.
-	CreateConsoleSession(ctx context.Context, name string, req *apiv1.BaremetalConsoleSessionRequest, opts gpupaas.ActionOptions) (*apiv1.BaremetalConsoleSession, error)
-	// GetStatusInfo returns runtime info for the machine (hardware, network,
-	// etc.). This is distinct from the resource's embedded Status field.
-	GetStatusInfo(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.BaremetalMachineInfo, error)
-}
-
-// MKSClusterInterface manages MKSCluster resources at project scope, along with
-// cluster-scoped sub-resources (nodes, worker node groups, audit events) and
-// imperative sub-actions (Upgrade, ScaleNodeGroup, AddNodeGroup, RemoveNodeGroup).
-type MKSClusterInterface interface {
-	Create(ctx context.Context, obj *apiv1.MKSCluster, opts gpupaas.CreateOptions) (*apiv1.MKSCluster, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSCluster, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSClusterList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-
-	// Upgrade triggers a Kubernetes (and optional platform) version upgrade.
-	Upgrade(ctx context.Context, name string, req *apiv1.MKSUpgradeRequest, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
-	// ScaleNodeGroup adjusts the size of an existing worker node group.
-	ScaleNodeGroup(ctx context.Context, name string, req *apiv1.MKSScaleNodeGroupRequest, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
-	// AddNodeGroup adds a worker node group to the cluster.
-	AddNodeGroup(ctx context.Context, name string, nodeGroup *apiv1.MKSNodeGroup, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
-	// RemoveNodeGroup removes a worker node group from the cluster.
-	RemoveNodeGroup(ctx context.Context, name, nodeGroupName string, opts gpupaas.ActionOptions) (*apiv1.MKSCluster, error)
-
-	// Nodes returns a client for nodes within the named cluster.
-	Nodes(clusterName string) MKSNodeInterface
-	// WorkerNodeGroups returns a client for worker node groups within the named cluster.
-	WorkerNodeGroups(clusterName string) MKSWorkerNodeGroupInterface
-	// AuditEvents returns a read-only client for audit events within the named cluster.
-	AuditEvents(clusterName string) MKSAuditEventInterface
-}
-
-// MKSNodeInterface manages MKSNode resources within a cluster.
-type MKSNodeInterface interface {
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSNode, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSNodeList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-
-	// Drain evicts workloads from a node.
-	Drain(ctx context.Context, name string, req *apiv1.MKSDrainRequest, opts gpupaas.ActionOptions) (*apiv1.MKSNode, error)
-	// Cordon marks a node unschedulable.
-	Cordon(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.MKSNode, error)
-	// Uncordon marks a node schedulable.
-	Uncordon(ctx context.Context, name string, opts gpupaas.ActionOptions) (*apiv1.MKSNode, error)
-}
-
-// MKSWorkerNodeGroupInterface manages MKSWorkerNodeGroup resources within a cluster.
-type MKSWorkerNodeGroupInterface interface {
-	Create(ctx context.Context, obj *apiv1.MKSWorkerNodeGroup, opts gpupaas.CreateOptions) (*apiv1.MKSWorkerNodeGroup, error)
-	Get(ctx context.Context, name string, opts gpupaas.GetOptions) (*apiv1.MKSWorkerNodeGroup, error)
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSWorkerNodeGroupList, error)
-	Delete(ctx context.Context, name string, opts gpupaas.DeleteOptions) error
-}
-
-// MKSAuditEventInterface provides read-only access to MKS audit events within a cluster.
-type MKSAuditEventInterface interface {
-	List(ctx context.Context, opts gpupaas.ListOptions) (*apiv1.MKSAuditEventList, error)
-	Get(ctx context.Context, id string, opts gpupaas.GetOptions) (*apiv1.MKSAuditEvent, error)
+	// FailureLog returns the WARNING and ERROR lines (at most maxLines, newest
+	// last) of the failed activities of the last run. status.reason is often only
+	// "Failed to deploy"; the log holds the cause (for example an unreachable
+	// host). It returns an empty log, not an error, when the run has no
+	// environment or no failed activity. Log text can name hosts and addresses;
+	// show it to the operator but do not store it.
+	FailureLog(ctx context.Context, name string, maxLines int) (*apiv1.ComputeFailureLog, error)
 }

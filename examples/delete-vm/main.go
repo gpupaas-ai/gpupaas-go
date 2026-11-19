@@ -1,14 +1,20 @@
 // Delete a virtual machine by name.
 //
-//	go run ./examples/delete-vm -memory -project demo -name example-vm
-//	go run ./examples/delete-vm -project demo -workspace dev -name example-vm
+// Delete starts teardown; the VM stays visible (deleting) until it is gone. Pass -wait to poll
+// until it has disappeared.
+//
+//	export GPUPAAS_API_KEY=your-api-key
+//	go run ./examples/delete-vm -project demo -name example-vm
+//	go run ./examples/delete-vm -project demo -workspace dev -name example-vm -wait
 package main
 
 import (
 	"context"
 	"fmt"
+	"log"
 
 	gpupaas "github.com/gpupaas-ai/gpupaas-go"
+	typed "github.com/gpupaas-ai/gpupaas-go/clientset/typed/v1alpha1"
 	"github.com/gpupaas-ai/gpupaas-go/examples/vmcommon"
 )
 
@@ -16,23 +22,19 @@ func main() {
 	cfg := vmcommon.ParseFlags()
 	ctx := context.Background()
 
-	vms, memClient, err := vmcommon.NewClients(cfg)
+	vms, err := vmcommon.NewClient(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	fmt.Printf("=== delete virtual machine %q (%s) ===\n", cfg.Name, vmcommon.ScopeLabel(cfg.Workspace))
-
-	if memClient != nil {
-		vm := vmcommon.SampleVM(cfg.Project, cfg.Workspace, cfg.Name)
-		vmcommon.ApplyMemory(ctx, memClient, vm)
-		vmcommon.DeleteMemory(ctx, memClient, cfg.Project, cfg.Workspace, cfg.Name)
-		fmt.Printf("deleted %q\n", cfg.Name)
-		return
-	}
-
 	if err := vms.Delete(ctx, cfg.Name, gpupaas.DeleteOptions{}); err != nil {
-		panic(err)
+		log.Fatal(err)
+	}
+	if cfg.Wait {
+		if _, err := typed.WaitForVMInstance(ctx, vms, cfg.Name, typed.VMInstanceWaitOptions{Done: typed.VMInstanceGone, GoneIsDone: true}); err != nil {
+			log.Fatal(err)
+		}
 	}
 	fmt.Printf("deleted %q\n", cfg.Name)
 }

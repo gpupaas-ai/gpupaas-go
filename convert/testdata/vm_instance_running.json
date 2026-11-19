@@ -1,0 +1,23 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "VirtualMachine",
+  "metadata": {"name": "sample-vm", "project": "system-catalog", "workspace": "sample-ws", "id": "abc", "labels": {"control_plane_id": "x"}},
+  "spec": {
+    "type": "vm-test",
+    "cpu_count": "3",
+    "memory": "3",
+    "image": "ubuntu-22-04-system",
+    "ssh_key": "my-key",
+    "datacenter": "vmaas-functional-dc",
+    "boot_disk_size": 15,
+    "user_data": "#!/bin/bash\necho hi",
+    "sharing": {"shareMode": "None"},
+    "something_new": {"a": 1}
+  },
+  "status": {
+    "status": "running",
+    "action": "deploy",
+    "reason": "Instance sample-vm is running.",
+    "output": {"host_name": "h", "instance_id": "i-1", "os_name": "ubuntu", "private_ip": "10.0.0.7", "public_ip": "", "server_host": "host-1", "user_name": "ubuntu"}
+  }
+}

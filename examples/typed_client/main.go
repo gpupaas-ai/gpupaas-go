@@ -1,3 +1,7 @@
+// Apply and list an MKS cluster through the generic client (in-memory backend).
+//
+// The generic client (client.Client) applies, gets, lists and deletes objects by kind; it handles
+// MKSCluster. Use the typed clientset (clientset.NewForConfig) for first-class VMs and bare metal.
 package main
 
 import (
@@ -21,20 +25,24 @@ func main() {
 
 	ctx := context.Background()
 
-	ws := &v1alpha1.Workspace{
-		TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindWorkspace},
+	cluster := &v1alpha1.MKSCluster{
+		TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindMKSCluster},
 		Metadata: v1alpha1.ObjectMeta{Name: "example", Project: "demo"},
+		Spec: v1alpha1.MKSClusterSpec{
+			Profile:           &v1alpha1.MKSProfileRef{Name: "mks-oneclick-1"},
+			KubernetesVersion: "1.36",
+		},
 	}
-	applied, err := c.Apply(ctx, ws, "demo", "")
+	applied, err := c.Apply(ctx, cluster, "demo", "")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("applied %s/%s\n", applied.GetKind(), applied.GetName())
 
-	gvk := runtime.GroupVersionKind{Group: v1alpha1.Group, Version: v1alpha1.Version, Kind: v1alpha1.KindWorkspace}
+	gvk := runtime.GroupVersionKind{Group: v1alpha1.Group, Version: v1alpha1.Version, Kind: v1alpha1.KindMKSCluster}
 	items, err := c.List(ctx, gvk, "demo", "")
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("listed %d workspace(s)\n", len(items))
+	fmt.Printf("listed %d cluster(s)\n", len(items))
 }

@@ -24,7 +24,7 @@ func main() {
 	fmt.Printf("=== list MKS clusters in project %q ===\n", cfg.Project)
 
 	if memClient != nil {
-		for _, obj := range mkscommon.ListMemory(ctx, memClient, cfg.Project) {
+		for _, obj := range mkscommon.ListMemory(ctx, memClient, cfg) {
 			mkscommon.PrintYAML("mkscluster", obj)
 		}
 		return

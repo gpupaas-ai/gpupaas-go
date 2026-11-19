@@ -1,0 +1,75 @@
+{
+  "apiVersion": "paas.k8smgmt.io/v3",
+  "kind": "ClusterProfile",
+  "metadata": {
+    "name": "mks-oneclick-1",
+    "labels": {
+      "paas.envmgmt.io/compute_type": "k8s"
+    },
+    "project": "system-catalog"
+  },
+  "spec": {
+    "controlPlane": {
+      "computeTypes": [
+        "CPU"
+      ],
+      "defaultImage": "ubuntu-26",
+      "defaultSkuName": "bmaas-test-1",
+      "images": [
+        "ubuntu-26"
+      ],
+      "skuNames": [
+        "bmaas-test-1"
+      ],
+      "skuTypes": [
+        "BMAAS"
+      ]
+    },
+    "datacenters": [
+      "default-dc"
+    ],
+    "defaultBlueprint": {
+      "name": "minimal",
+      "version": "latest"
+    },
+    "defaultCni": {
+      "name": "Calico",
+      "version": "3.32.2"
+    },
+    "defaultKubernetesVersion": "1.36",
+    "defaultOidc": {},
+    "defaultPodSubnet": "10.0.0.1/16",
+    "defaultServiceSubnet": "10.0.0.1/12",
+    "defaultSshKey": "mine",
+    "sharing": {},
+    "supportedCnis": [
+      {
+        "name": "Calico",
+        "version": "3.32.2"
+      }
+    ],
+    "supportedKubernetesVersions": [
+      "1.36"
+    ],
+    "version": "v3.1.41",
+    "workers": {
+      "computeTypes": [
+        "CPU"
+      ],
+      "defaultImage": "ubuntu-26",
+      "defaultSkuName": "bmaas-test-1",
+      "images": [
+        "ubuntu-26"
+      ],
+      "skuNames": [
+        "bmaas-test-1"
+      ],
+      "skuTypes": [
+        "BMAAS"
+      ]
+    }
+  },
+  "status": {
+    "status": "ready"
+  }
+}

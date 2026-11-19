@@ -26,19 +26,8 @@ func ValidateObject(obj runtime.Object, opts Options) error {
 	}
 
 	switch obj.GetKind() {
-	case v1alpha1.KindProject:
-		return nil
-	case v1alpha1.KindWorkspace:
-		project := obj.GetProject()
-		if project == "" {
-			project = opts.DefaultProject
-		}
-		if project == "" {
-			return fmt.Errorf("metadata.project is required (or pass project to Apply/List)")
-		}
-		obj.SetProject(project)
-		return nil
-	case v1alpha1.KindVirtualMachine, v1alpha1.KindStorage, v1alpha1.KindSecurityGroup, v1alpha1.KindSshKey, v1alpha1.KindBaremetalMachine, v1alpha1.KindMKSCluster:
+	case v1alpha1.KindMKSCluster:
+		// Clusters live in a project and, optionally, in one of its workspaces.
 		project := obj.GetProject()
 		if project == "" {
 			project = opts.DefaultProject
@@ -75,9 +64,4 @@ func ValidateObject(obj runtime.Object, opts Options) error {
 		obj.SetWorkspace(workspace)
 		return nil
 	}
-}
-
-// RequiresProject reports whether List/Get/Delete need a project argument for kind.
-func RequiresProject(kind string) bool {
-	return kind != v1alpha1.KindProject
 }

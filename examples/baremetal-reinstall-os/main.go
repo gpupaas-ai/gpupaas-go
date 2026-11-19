@@ -1,11 +1,11 @@
-// Reinstall the OS on a baremetal machine (POST .../reinstallOS).
+// Reinstall the operating system of a bare-metal machine (POST .../action/Reinstall OS).
 //
-// Requires live API — actions are not supported on the in-memory backend.
+// The verb takes the new image in its payload; it must be one of the images of the machine's
+// BmProfile. Action returns once the backend accepts the verb; pass -wait to poll until the
+// machine has settled.
 //
-//	go run ./examples/baremetal-reinstall-os \
-//	    -project demo \
-//	    -name example-bm \
-//	    -image-url http://images/example.qcow2
+//	export GPUPAAS_API_KEY=your-api-key
+//	go run ./examples/baremetal-reinstall-os -project demo -name example-bm -image ubuntu-26
 package main
 
 import (
@@ -13,36 +13,29 @@ import (
 	"fmt"
 	"log"
 
-	gpupaas "github.com/gpupaas-ai/gpupaas-go"
-	v1alpha1 "github.com/gpupaas-ai/gpupaas-go/apis/v1alpha1"
+	typed "github.com/gpupaas-ai/gpupaas-go/clientset/typed/v1alpha1"
 	"github.com/gpupaas-ai/gpupaas-go/examples/baremetalcommon"
 )
 
 func main() {
 	cfg := baremetalcommon.ParseFlags()
-	if cfg.UseMemory {
-		log.Fatal("baremetal-reinstall-os requires live API; omit -memory")
-	}
-	if cfg.ImageURL == "" {
-		log.Fatal("-image-url is required")
-	}
 	ctx := context.Background()
 
-	bms, _, err := baremetalcommon.NewClients(cfg)
+	bms, err := baremetalcommon.NewClient(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	fmt.Printf("=== reinstall OS on baremetal machine %q (image=%s) ===\n", cfg.Name, cfg.ImageURL)
-	image := &v1alpha1.BaremetalImage{
-		URL:          cfg.ImageURL,
-		Format:       "qcow2",
-		ChecksumType: "auto",
-		Checksum:     "auto",
-	}
-	result, err := bms.ReinstallOS(ctx, cfg.Name, image, gpupaas.ActionOptions{})
+	fmt.Printf("=== reinstall OS on bare-metal machine %q (%s, image=%s) ===\n", cfg.Name, baremetalcommon.ScopeLabel(cfg.Workspace), cfg.Image)
+	result, err := bms.Action(ctx, cfg.Name, "Reinstall OS", map[string]any{"image": cfg.Image})
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	baremetalcommon.PrintYAML("baremetalmachine", result)
+	if cfg.Wait {
+		result, err = typed.WaitForBareMetal(ctx, bms, cfg.Name, typed.BareMetalWaitOptions{Done: typed.BareMetalActionDone("Reinstall OS"), Stable: 2})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	baremetalcommon.Print("baremetal", result)
 }

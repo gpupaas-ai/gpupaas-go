@@ -1,0 +1,29 @@
+{
+  "apiVersion": "paas.k8smgmt.io/v3",
+  "kind": "ClusterNodeList",
+  "metadata": {
+    "count": 1
+  },
+  "items": [
+    {
+      "apiVersion": "paas.k8smgmt.io/v3",
+      "kind": "ClusterNode",
+      "metadata": {
+        "name": "node-1",
+        "labels": {
+          "cluster_name": "demo-cluster",
+          "instancename": "demo-cluster-bmaas-test-1-m0",
+          "node-role.kubernetes.io/control-plane": "",
+          "nodepoolname": "master",
+          "sku_name": "bmaas-test-1"
+        },
+        "project": "system-catalog"
+      },
+      "spec": {
+        "hostname": "node-1",
+        "arch": "amd64",
+        "kubeVersion": "v1.36.4"
+      }
+    }
+  ]
+}

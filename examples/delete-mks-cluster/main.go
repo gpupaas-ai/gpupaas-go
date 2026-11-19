@@ -24,7 +24,7 @@ func main() {
 	fmt.Printf("=== delete MKS cluster %q ===\n", cfg.Name)
 
 	if memClient != nil {
-		mkscommon.DeleteMemory(ctx, memClient, cfg.Project, cfg.Name)
+		mkscommon.DeleteMemory(ctx, memClient, cfg)
 		fmt.Printf("deleted %q\n", cfg.Name)
 		return
 	}

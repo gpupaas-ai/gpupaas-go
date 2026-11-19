@@ -1,0 +1,11 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "Storage",
+  "metadata": {"name": "obj-test", "project": "system-catalog", "workspace": "lab-ws"},
+  "spec": {"type": "object-profile", "size": "1"},
+  "status": {
+    "status": "failed",
+    "reason": "Couldn't delete storage obj-test. Please try again; if the problem persists, contact your administrator.",
+    "action": "destroy"
+  }
+}

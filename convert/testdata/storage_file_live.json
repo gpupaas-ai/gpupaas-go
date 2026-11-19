@@ -1,0 +1,37 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "Storage",
+  "metadata": {
+    "name": "weka-fs-demo",
+    "project": "system-catalog",
+    "id": "01a18bc1-0000-7000-8000-000000000001",
+    "createdAt": "2026-10-16T08:57:54.393018Z",
+    "modifiedAt": "2026-10-16T09:02:11.100000Z",
+    "createdBy": {"id": "abc1234", "username": "someone@example.com"},
+    "modifiedBy": {"id": "abc1234", "username": "someone@example.com"}
+  },
+  "spec": {
+    "type": "weka-fs",
+    "size": "100",
+    "datacenter": "lab-dc",
+    "enable_encryption_at_rest": "true",
+    "enable_encryption_in_transit": "false",
+    "storage_type": "file"
+  },
+  "status": {
+    "status": "success",
+    "reason": "Storage Deployment Successful",
+    "action": "deploy",
+    "output": {
+      "name": "vmaas-test-fs",
+      "uid": "fs-mock-1001",
+      "filesystem_servers": "10.0.0.7",
+      "mount_username": "mount_user_org",
+      "mount_password": "<masked>",
+      "mount_access_token": "<masked>",
+      "mount_refresh_token": "<masked>",
+      "weka_organization_name": "org1",
+      "volume_size": 100000000000
+    }
+  }
+}

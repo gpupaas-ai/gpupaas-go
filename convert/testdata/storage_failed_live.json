@@ -1,0 +1,11 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "Storage",
+  "metadata": {"name": "broken", "project": "system-catalog", "workspace": "lab-ws"},
+  "spec": {"type": "hss-profile", "storage_type": "hss-profile"},
+  "status": {
+    "status": "failed",
+    "reason": "Couldn't provision storage broken due to an internal error. Please contact your administrator.",
+    "action": "deploy"
+  }
+}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	v1alpha1 "github.com/gpupaas-ai/gpupaas-go/apis/v1alpha1"
 	"github.com/gpupaas-ai/gpupaas-go/backend"
 	"github.com/gpupaas-ai/gpupaas-go/runtime"
 )
@@ -33,9 +32,6 @@ func (s *Store) Apply(_ context.Context, obj runtime.Object) (runtime.Object, er
 	defer s.mu.Unlock()
 	k := objectKey(obj)
 	stored := obj.DeepCopyObject()
-	if existing, ok := s.items[k]; ok {
-		stored = mergeStatus(existing, stored)
-	}
 	s.items[k] = stored
 	return stored.DeepCopyObject(), nil
 }
@@ -86,45 +82,5 @@ func objectKey(obj runtime.Object) key {
 }
 
 func lookupKey(kind, project, workspace, name string) key {
-	switch kind {
-	case v1alpha1.KindProject:
-		return key{kind: kind, name: name}
-	case v1alpha1.KindWorkspace:
-		return key{kind: kind, project: project, workspace: "", name: name}
-	case v1alpha1.KindWorkspaceCollaborator:
-		return key{kind: kind, project: project, workspace: workspace, name: name}
-	default:
-		return key{kind: kind, project: project, workspace: workspace, name: name}
-	}
-}
-
-func mergeStatus(existing, desired runtime.Object) runtime.Object {
-	switch ex := existing.(type) {
-	case *v1alpha1.Project:
-		d, ok := desired.(*v1alpha1.Project)
-		if !ok {
-			return desired
-		}
-		cp := *d
-		cp.Status = ex.Status
-		return &cp
-	case *v1alpha1.Workspace:
-		d, ok := desired.(*v1alpha1.Workspace)
-		if !ok {
-			return desired
-		}
-		cp := *d
-		cp.Status = ex.Status
-		return &cp
-	case *v1alpha1.WorkspaceCollaborator:
-		d, ok := desired.(*v1alpha1.WorkspaceCollaborator)
-		if !ok {
-			return desired
-		}
-		cp := *d
-		cp.Status = ex.Status
-		return &cp
-	default:
-		return desired
-	}
+	return key{kind: kind, project: project, workspace: workspace, name: name}
 }

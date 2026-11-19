@@ -1,0 +1,16 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "SshKey",
+  "metadata": {
+    "name": "tf-key",
+    "project": "system-catalog",
+    "id": "x1",
+    "projectID": "x2",
+    "createdAt": "2026-10-16T04:12:37.191636Z",
+    "modifiedAt": "2026-10-16T04:12:37.191636Z",
+    "workspace": "tf-ws",
+    "workspaceID": "x3"
+  },
+  "spec": {"public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample tf@example", "sharing": {"shareMode": "None"}},
+  "status": {"status": "success"}
+}

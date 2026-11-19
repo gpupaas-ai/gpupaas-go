@@ -1,0 +1,11 @@
+{
+  "apiVersion": "dev.envmgmt.io/v1",
+  "kind": "Storage",
+  "metadata": {"name": "obj-test", "project": "system-catalog", "workspace": "lab-ws"},
+  "spec": {"type": "object-profile", "size": "1"},
+  "status": {
+    "status": "failed",
+    "reason": "Couldn't provision storage obj-test; provisioning is temporarily unavailable. Please contact your administrator.",
+    "action": "deploy"
+  }
+}

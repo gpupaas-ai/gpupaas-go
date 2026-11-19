@@ -24,7 +24,7 @@ func main() {
 	fmt.Printf("=== get MKS cluster %q ===\n", cfg.Name)
 
 	if memClient != nil {
-		got := mkscommon.GetMemory(ctx, memClient, cfg.Project, cfg.Name)
+		got := mkscommon.GetMemory(ctx, memClient, cfg)
 		mkscommon.PrintYAML("mkscluster", got)
 		return
 	}
